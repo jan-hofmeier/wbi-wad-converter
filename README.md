@@ -53,7 +53,7 @@ This project is organized into two stages:
    
    - **Game**: `Worms Battle Island.wbfs` (or `.iso`)
    
-   - **Bootloader**: `00000060.app` (from Wii Shop v21) **OR** `Shopping-Channel-HABA-v21-Wii.wad` **OR** `nand_loader.dol`
+   - **Bootloader**: `00000060.app` (from Wii Shop v21) **OR** `Shopping-Channel-HABA-v21-Wii.wad` **OR** `nand_loader.dol`(Can be downloaded with NUS Downloader)
    
    - **Key**: `otp.bin` (from Wii / Wii U) **OR** `common.key`
 2. **Double-click `convert.py`** (or run `python3 convert.py`).

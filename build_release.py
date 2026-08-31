@@ -78,6 +78,7 @@ def build_all(version="1.0.0"):
         (os.path.join("scripts", "pack_content2.py"), "scripts/pack_content2.py"),
         (os.path.join("scripts", "pack_wad.py"), "scripts/pack_wad.py"),
         (os.path.join("scripts", "compress_lz11.py"), "scripts/compress_lz11.py"),
+        (os.path.join("input", "README.txt"), "input/README.txt"),
     ]
     if os.path.isfile(lz11_tool):
         files_to_pack.append((os.path.join("tools", "lz11_compress"), "tools/lz11_compress"))
