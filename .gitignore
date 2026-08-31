@@ -1,55 +1,52 @@
-# Prerequisites
-*.d
-
-# Object files
+# Build & Intermediate Directories
+build/
+dist/
+temp/
+work/
+__pycache__/
+*.pyc
 *.o
-*.ko
-*.obj
+*.d
 *.elf
 
-# Linker output
-*.ilk
-*.map
-*.exp
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
-
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
-
-# Executables
-*.exe
-*.out
+# Game & Binary Files (Do not commit proprietary or user data)
+*.wbfs
+*.iso
+*.wad
+*.dol
+*.lz11
 *.app
-*.i*86
-*.x86_64
-*.hex
+*.bin
+*.tik
+*.tmd
+*.tmd.*
+otp.bin
+common.key
+key.bin
+keys.bin
 
-# Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
+precompiled/
+work_temp/
 
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
+# User Input Files (preserve README.txt in input/)
+input/*
+!input/README.txt
 
-# debug information files
-*.dwo
+# Native Tools
+tools/
+lz11_compress
+
+# Extracted Game Asset Folders
+extracted/
+wbi_extracted/
+DataWii/
+opening.bnr
+content2.bin
+
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
