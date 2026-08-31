@@ -2,6 +2,15 @@
 
 A standalone converter and runtime shim engine that transforms retail disc copies of **Worms: Battle Islands** (Wii / RVL) into an official-style, fully self-contained **Wii Channel WAD** (`SILP`) bootable directly from the Wii System Menu on retail Wii, vWii (Wii U), and the Dolphin Emulator.
 
+## Human Remark
+
+This was created using Sonnet and Gemini, but wouldn't have been possible without the amazing work of the community reverse engeniering the system and file formats.
+
+Why does this even exist? you might ask. There is not much reason to do this as USB loaders work perfectly fine and the NAND very is limited. I was just suprised how small the game was when I dumped it and later learned that it was orginally intented as a Wii Ware release. So this is just how the Developers intended the game to be played. I just wondered if it was possible and what it would and had some tokens left at the end of the month. There is a noticable improvment in loading times compared to a USB Loader tho.
+
+I let the AI work mostly on its own with only minimal input regarding the goal and architecture descisions and a few nudges when it drifted off / fell into a rabit hole, just so see where it would get. To my suprise it was very good at reverse engineering the binaries and produces a working wad at the end (tested on Dolphin and vWii).
+But use this at your own risk. Apart from skimming through the code, there was no review.
+
 ---
 
 ## Features
@@ -18,6 +27,7 @@ A standalone converter and runtime shim engine that transforms retail disc copie
 ## Two-Stage Workflow
 
 This project is organized into two stages:
+
 1. **Stage 1 (Build / Developer)**: Compiles the PowerPC DVD-NAND redirection shim and native tools into precompiled release binaries.
 2. **Stage 2 (Conversion / User)**: Takes the user's legally dumped game (`.wbfs` / `.iso`), extracts assets, patches the DOL, compresses it to LZ11, and packages the final WAD channel.
 
@@ -26,6 +36,7 @@ This project is organized into two stages:
 ## Prerequisites
 
 - **Python 3.8+** with `cryptography` package:
+  
   ```bash
   pip install cryptography
   ```
@@ -37,9 +48,13 @@ This project is organized into two stages:
 ## User Guide: Building the WAD (Stage 2)
 
 ### Quick Start (Double-Click / Drag & Drop):
+
 1. Drop your files into the **`input/`** folder:
+   
    - **Game**: `Worms Battle Island.wbfs` (or `.iso`)
+   
    - **Bootloader**: `00000060.app` (from Wii Shop v21) **OR** `Shopping-Channel-HABA-v21-Wii.wad` **OR** `nand_loader.dol`
+   
    - **Key**: `otp.bin` (from Wii / Wii U) **OR** `common.key`
 2. **Double-click `convert.py`** (or run `python3 convert.py`).
 3. The script automatically detects the files, builds `worms_bi.wad`, and reports the result!
@@ -110,10 +125,12 @@ make release
 ```
 
 ### Memory Map (MEM1 & MEM2)
+
 - **MEM1 (`Text[2]`)**: The custom shim is linked into a dedicated section at `0x805B0000`–`0x805B4000`. `ArenaLo` is set to `0x805C0000` to prevent memory heap collisions.
 - **MEM2**: Left entirely unburdened for dynamic game allocations (unzipping destructible landscapes, particle textures, and audio mixing).
 
 ### Verified Synchronous NAND Functions in RVL SDK
+
 - `NANDOpen`: `0x802AC240` — `(const char* path, NANDFileInfo* info, u8 accType)`
 - `NANDClose`: `0x802AC4E0` — `(NANDFileInfo* info)`
 - `NANDRead`: `0x802AB360` — `(NANDFileInfo* info, void* buf, u32 len)`
