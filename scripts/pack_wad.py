@@ -58,7 +58,10 @@ def create_wad(dol_lz11_path, content2_path, banner_path, nand_loader_path, out_
         tik[0x1E8:0x1EC] = struct.pack('>I', 0x00000001)
 
     tik[0x1BF:0x1CF] = enc_title_key
+    tik[0x1D8:0x1DC] = struct.pack('>I', 0x00000001) # AHBPROT
     tik[0x1DC:0x1E4] = title_id
+    tik[0x1E4:0x1E6] = b'\xFF\xFF'
+    tik[0x222:0x262] = b'\xFF' * 64
 
     # TMD Header (0x1E4 = 484 bytes)
     if tmd_template and len(tmd_template) >= 0x1E4:
@@ -69,9 +72,10 @@ def create_wad(dol_lz11_path, content2_path, banner_path, nand_loader_path, out_
         tmd_hdr[0x140:0x17A] = b'Root-CA00000001-CP00000004\x00'
 
     tmd_hdr[0x180:0x184] = struct.pack('>I', 0x00000001) # Version
-    tmd_hdr[0x184:0x18C] = bytes.fromhex('0000000100000038') # IOS56
+    tmd_hdr[0x184:0x18C] = bytes.fromhex('00000001000000F9') # IOS249 (d2x cIOS base 56)
     tmd_hdr[0x18C:0x194] = title_id
     tmd_hdr[0x194:0x198] = struct.pack('>I', 0x00000001) # Title Type = Channel
+    tmd_hdr[0x1D8:0x1DC] = struct.pack('>I', 0x00000001) # AHBPROT
     tmd_hdr[0x1DE:0x1E0] = struct.pack('>H', len(contents))
     tmd_hdr[0x1E0:0x1E2] = struct.pack('>H', 3) # Boot index = 3 (nand_loader)
 

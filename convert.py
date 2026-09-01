@@ -37,14 +37,18 @@ def ensure_lz11_compress():
 
     return None
 
-def build_shim_from_source(devkitpro_path=None):
+def build_shim_from_source(devkitpro_path=None, enable_debug_flash=False):
     """Compiles dvd_nand_shim.bin from source using devkitPPC."""
     devkitpro = devkitpro_path or os.environ.get("DEVKITPRO", "/opt/devkitpro")
     gcc_path = os.path.join(devkitpro, "devkitPPC", "bin", "powerpc-eabi-gcc")
     objcopy_path = os.path.join(devkitpro, "devkitPPC", "bin", "powerpc-eabi-objcopy")
 
     if not os.path.isfile(gcc_path) or not os.path.isfile(objcopy_path):
-        raise FileNotFoundError(f"devkitPPC not found at {gcc_path}. Please install devkitPPC or use precompiled binaries.")
+        if shutil.which("powerpc-eabi-gcc") and shutil.which("powerpc-eabi-objcopy"):
+            gcc_path = shutil.which("powerpc-eabi-gcc")
+            objcopy_path = shutil.which("powerpc-eabi-objcopy")
+        else:
+            raise FileNotFoundError(f"devkitPPC not found at {gcc_path}. Please install devkitPPC or use precompiled binaries.")
 
     src_dir = os.path.join(SCRIPT_DIR, "src")
     out_dir = os.path.join(SCRIPT_DIR, "precompiled")
@@ -54,10 +58,12 @@ def build_shim_from_source(devkitpro_path=None):
     map_path = os.path.join(out_dir, "dvd_nand_shim.elf.map")
     bin_path = os.path.join(out_dir, "dvd_nand_shim.bin")
 
-    print("Compiling DVD-NAND shim from source...")
+    flash_flag = "-DENABLE_SENSOR_FLASH=1" if enable_debug_flash else "-DENABLE_SENSOR_FLASH=0"
+    print(f"Compiling DVD-NAND shim from source (Debug Flash: {'ON' if enable_debug_flash else 'OFF'})...")
     cflags = [
         "-O2", "-Wall", "-m32", "-mhard-float", "-meabi", "-mno-sdata",
         "-nostartfiles", "-nodefaultlibs", "-fno-builtin", "-fno-tree-loop-distribute-patterns",
+        flash_flag,
         "-T", os.path.join(src_dir, "shim.ld"),
         f"-Wl,-Map={map_path}",
         "-o", elf_path,
@@ -151,7 +157,7 @@ def auto_discover_inputs():
                     break
         if game_path: break
 
-    # 2. Search for NAND Bootloader (.app, .dol, or system .wad)
+    # 2. Search for NAND Bootloader (.app, .dol, or system/WiiWare .wad)
     for d in search_dirs:
         if not os.path.isdir(d): continue
         for item in os.listdir(d):
@@ -164,7 +170,7 @@ def auto_discover_inputs():
                 elif low.endswith(".dol") and ("loader" in low or "nand" in low):
                     loader_path = full_p
                     break
-                elif low.endswith(".wad") and ("shop" in low or "haba" in low or "mii" in low or "haca" in low or "channel" in low):
+                elif low.endswith(".wad") and ("shop" in low or "haba" in low or "mii" in low or "haca" in low or "channel" in low or "wiiware" in low):
                     if "worms" not in low and "output" not in low:
                         loader_path = full_p
                         break
@@ -181,6 +187,7 @@ def main():
     parser.add_argument("--otp", help="Path to otp.bin from Wii or Wii U vWii.")
     parser.add_argument("--keyfile", help="Path to common.key or key.bin.")
     parser.add_argument("--build-shim", action="store_true", help="Recompile the DVD-NAND shim from source with devkitPPC.")
+    parser.add_argument("--debug-flash", action="store_true", help="Enable hardware sensor bar LED diagnostic blinking (for debugging boot hangs).")
     parser.add_argument("--devkitpro", help="Custom path to devkitPro directory.")
     parser.add_argument("--work-dir", default="work_temp", help="Temporary working directory.")
     parser.add_argument("--keep-temp", action="store_true", help="Keep temporary working files after completion.")
@@ -243,14 +250,14 @@ def main():
 
     try:
         # 2. Resolve Shim
-        if args.build_shim:
-            shim_bin = build_shim_from_source(args.devkitpro)
+        if args.build_shim or args.debug_flash:
+            shim_bin = build_shim_from_source(args.devkitpro, enable_debug_flash=args.debug_flash)
         else:
             shim_bin = os.path.join(SCRIPT_DIR, "precompiled", "dvd_nand_shim.bin")
             if not os.path.isfile(shim_bin):
                 print("Precompiled shim not found. Attempting to build from source...")
                 try:
-                    shim_bin = build_shim_from_source(args.devkitpro)
+                    shim_bin = build_shim_from_source(args.devkitpro, enable_debug_flash=args.debug_flash)
                 except FileNotFoundError:
                     print("\nError: 'precompiled/dvd_nand_shim.bin' is not present and devkitPPC was not found.")
                     print("Please either:")

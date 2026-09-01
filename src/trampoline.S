@@ -358,3 +358,254 @@ Hook_Safe_Memset:
     ori 12, 12, 0x4664
     mtctr 12
     bctr
+
+.global M1_Wrapper
+.type M1_Wrapper, @function
+M1_Wrapper:
+#if ENABLE_SENSOR_FLASH
+    stwu 1, -64(1)
+    mflr 0
+    stw 0, 68(1)
+    stw 3, 16(1)
+    stw 4, 20(1)
+    stw 5, 24(1)
+
+    lis 4, flag_m1@h
+    ori 4, 4, flag_m1@l
+    lwz 5, 0(4)
+    cmpwi 5, 0
+    bne m1_skip
+    li 5, 1
+    stw 5, 0(4)
+
+    li 3, 1
+    bl Blink_Milestone
+
+m1_skip:
+    lwz 0, 68(1)
+    mtlr 0
+    lwz 3, 16(1)
+    lwz 4, 20(1)
+    lwz 5, 24(1)
+    addi 1, 1, 64
+#endif
+    # Call original target 0x8027EB70 and return
+    lis 12, 0x8027
+    ori 12, 12, 0xEB70
+    mtctr 12
+    bctr
+
+.global M2_Wrapper
+.type M2_Wrapper, @function
+M2_Wrapper:
+#if ENABLE_SENSOR_FLASH
+    stwu 1, -64(1)
+    mflr 0
+    stw 0, 68(1)
+    stw 3, 16(1)
+    stw 4, 20(1)
+    stw 5, 24(1)
+
+    lis 4, flag_m2@h
+    ori 4, 4, flag_m2@l
+    lwz 5, 0(4)
+    cmpwi 5, 0
+    bne m2_skip
+    li 5, 1
+    stw 5, 0(4)
+
+    li 3, 2
+    bl Blink_Milestone
+
+m2_skip:
+    lwz 0, 68(1)
+    mtlr 0
+    lwz 3, 16(1)
+    lwz 4, 20(1)
+    lwz 5, 24(1)
+    addi 1, 1, 64
+#endif
+    # Execute original instruction at 0x80004170 (lis r4, 0x8000)
+    lis 4, 0x8000
+    # Branch to 0x80004174
+    lis 12, 0x8000
+    ori 12, 12, 0x4174
+    mtctr 12
+    bctr
+
+.global M3_Wrapper
+.type M3_Wrapper, @function
+M3_Wrapper:
+#if ENABLE_SENSOR_FLASH
+    stwu 1, -64(1)
+    mflr 0
+    stw 0, 68(1)
+    stw 3, 16(1)
+    stw 4, 20(1)
+    stw 5, 24(1)
+
+    lis 4, flag_m3@h
+    ori 4, 4, flag_m3@l
+    lwz 5, 0(4)
+    cmpwi 5, 0
+    bne m3_skip
+    li 5, 1
+    stw 5, 0(4)
+
+    li 3, 3
+    bl Blink_Milestone
+
+m3_skip:
+    lwz 0, 68(1)
+    mtlr 0
+    lwz 3, 16(1)
+    lwz 4, 20(1)
+    lwz 5, 24(1)
+    addi 1, 1, 64
+#endif
+    # Branch to Hook_MainTrace_Trampoline
+    lis 12, Hook_MainTrace_Trampoline@h
+    ori 12, 12, Hook_MainTrace_Trampoline@l
+    mtctr 12
+    bctr
+
+.global Blink_Milestone
+.type Blink_Milestone, @function
+Blink_Milestone:
+#if ENABLE_SENSOR_FLASH
+    stwu 1, -64(1)
+    mflr 0
+    stw 0, 68(1)
+    stw 3, 16(1)
+    stw 4, 20(1)
+    stw 5, 24(1)
+    stw 6, 28(1)
+    stw 7, 32(1)
+    stw 8, 36(1)
+    
+    mr 8, 3
+    cmpwi 8, 0
+    ble bm_end
+    
+    bl TurnOff_Sensor
+    bl Delay3_0s
+    
+bm_loop:
+    bl TurnOn_Sensor
+    bl Delay0_6s
+    bl TurnOff_Sensor
+    bl Delay0_6s
+    
+    subi 8, 8, 1
+    cmpwi 8, 0
+    bgt bm_loop
+    
+    bl Delay3_0s
+    
+bm_end:
+    lwz 3, 16(1)
+    lwz 4, 20(1)
+    lwz 5, 24(1)
+    lwz 6, 28(1)
+    lwz 7, 32(1)
+    lwz 8, 36(1)
+    lwz 0, 68(1)
+    mtlr 0
+    addi 1, 1, 64
+#endif
+    blr
+
+.global Blink_Error
+.type Blink_Error, @function
+Blink_Error:
+#if ENABLE_SENSOR_FLASH
+    stwu 1, -64(1)
+    mflr 0
+    stw 0, 68(1)
+    stw 3, 16(1)
+    stw 4, 20(1)
+    stw 5, 24(1)
+    stw 6, 28(1)
+    stw 7, 32(1)
+    stw 8, 36(1)
+    
+    li 8, 20
+be_loop:
+    bl TurnOn_Sensor
+    bl Delay0_1s
+    bl TurnOff_Sensor
+    bl Delay0_1s
+    subi 8, 8, 1
+    cmpwi 8, 0
+    bgt be_loop
+    
+    lwz 3, 16(1)
+    lwz 4, 20(1)
+    lwz 5, 24(1)
+    lwz 6, 28(1)
+    lwz 7, 32(1)
+    lwz 8, 36(1)
+    lwz 0, 68(1)
+    mtlr 0
+    addi 1, 1, 64
+#endif
+    blr
+
+#if ENABLE_SENSOR_FLASH
+TurnOff_Sensor:
+    lis 4, 0xCD80
+    ori 4, 4, 0x00C0
+    lwz 5, 0(4)
+    lis 6, 0xFFFF
+    ori 6, 6, 0xFEFF
+    and 5, 5, 6
+    stw 5, 0(4)
+    blr
+    
+TurnOn_Sensor:
+    lis 4, 0xCD80
+    ori 4, 4, 0x00C0
+    lwz 5, 0(4)
+    ori 5, 5, 0x0100
+    stw 5, 0(4)
+    blr
+    
+Delay0_1s:
+    lis 6, 0x0200
+    ori 6, 6, 0x0000
+    li 7, 0
+d01s:
+    addi 7, 7, 1
+    cmpw 7, 6
+    blt d01s
+    blr
+
+Delay0_6s:
+    lis 6, 0x0900
+    ori 6, 6, 0x0000
+    li 7, 0
+d06s:
+    addi 7, 7, 1
+    cmpw 7, 6
+    blt d06s
+    blr
+    
+Delay3_0s:
+    lis 6, 0x2C00
+    ori 6, 6, 0x0000
+    li 7, 0
+d30s:
+    addi 7, 7, 1
+    cmpw 7, 6
+    blt d30s
+    blr
+
+.section .bss
+.align 4
+flag_m1: .long 0
+flag_m2: .long 0
+flag_m3: .long 0
+flag_m4: .long 0
+flag_m5: .long 0
+#endif
+

@@ -51,46 +51,13 @@ struct DVDFileInfo {
     DVDCallback callback;
 };
 
-typedef struct NANDFileInfo {
-    u32 fd;
-    u32 origLength;
-    u32 offset;
-    u8 openMode;
-    u8 pad[3];
-    u8 priv[512];
-} NANDFileInfo __attribute__((aligned(32)));
-
-typedef s32 (*IOS_Open_t)(const char* path, u32 mode);
-typedef s32 (*IOS_Close_t)(s32 fd, void* cb, void* cb_data);
-typedef s32 (*IOS_Read_t)(s32 fd, void* buf, u32 len);
-typedef s32 (*IOS_Seek_t)(s32 fd, s32 offset, s32 whence);
-typedef s32 (*IOS_Ioctl_t)(s32 fd, u32 cmd, void* in, u32 in_len, void* out, u32 out_len);
-
-typedef s32 (*NANDOpen_t)(const char* path, NANDFileInfo* info, u8 accType);
-typedef s32 (*NANDClose_t)(NANDFileInfo* info);
-typedef s32 (*NANDRead_t)(NANDFileInfo* info, void* buf, u32 len);
-typedef s32 (*NANDSeek_t)(NANDFileInfo* info, s32 offset, s32 whence);
-typedef s32 (*NANDGetLength_t)(NANDFileInfo* info, u32* length);
-
-#define fn_IOS_InitIPC  ((s32 (*)(void))0x802AE9A0)
-#define fn_IOS_Open     ((IOS_Open_t)0x802B9D90)
-#define fn_IOS_Close    ((IOS_Close_t)0x802AF110)
-#define fn_IOS_Read     ((IOS_Read_t)0x802B9FE0)
-#define fn_IOS_Seek     ((IOS_Seek_t)0x802BA0B0)
-#define fn_IOS_Ioctl    ((IOS_Ioctl_t)0x802B9F30)
-
-/* Confirmed exact NAND sync function addresses:
- * NANDOpen(path, info, accType):       0x802AC240 — sync
- * NANDClose(info):                     0x802AC4E0 — sync
- * NANDRead(info, buf, len):            0x802AB360 — sync
- * NANDSeek(info, offset, whence):      0x802AB540 — sync
- * NANDGetLength(info, length):         0x802AC550 — sync */
-#define fn_NANDOpen      ((NANDOpen_t)0x802AC240)
-#define fn_NANDClose     ((NANDClose_t)0x802AC4E0)
-#define fn_NANDRead      ((NANDRead_t)0x802AB360)
-#define fn_NANDSeek      ((NANDSeek_t)0x802AB540)
-#define fn_NANDGetLength ((NANDGetLength_t)0x802AC550)
-
+#if ENABLE_SENSOR_FLASH
+extern void Blink_Milestone(int n);
+extern void Blink_Error(void);
+#else
+#define Blink_Milestone(n) ((void)0)
+#define Blink_Error()      ((void)0)
+#endif
 
 /* Assembly Trampolines to Original Functions in main.dol */
 extern s32 Orig_DVDConvertPathToEntrynum(const char* path);
@@ -189,11 +156,36 @@ static VirtualFileEntry s_FileTable[] = {
 };
 #define NUM_VIRTUAL_FILES 54
 
+typedef struct NANDFileInfo {
+    u32 fd;
+    u32 origStartAddr;
+    u32 length;
+    u32 position;
+    u32 reserved[4];
+} NANDFileInfo __attribute__((aligned(32)));
+
+typedef s32 (*NANDOpen_t)(const char* path, NANDFileInfo* info, u8 accType);
+typedef s32 (*NANDClose_t)(NANDFileInfo* info);
+typedef s32 (*NANDRead_t)(NANDFileInfo* info, void* buf, u32 len);
+typedef s32 (*NANDSeek_t)(NANDFileInfo* info, s32 offset, s32 whence);
+typedef s32 (*NANDGetLength_t)(NANDFileInfo* info, u32* length);
+
+#define fn_IOS_InitIPC  ((s32 (*)(void))0x802AE9A0)
+#define fn_IOS_Open     ((IOS_Open_t)0x802B9D90)
+#define fn_IOS_Close    ((IOS_Close_t)0x802AF110)
+#define fn_IOS_Read     ((IOS_Read_t)0x802B9FE0)
+#define fn_IOS_Seek     ((IOS_Seek_t)0x802BA0B0)
+#define fn_IOS_Ioctl    ((IOS_Ioctl_t)0x802B9F30)
+
+#define fn_NANDOpen      ((NANDOpen_t)0x802AC240)
+#define fn_NANDClose     ((NANDClose_t)0x802AC4E0)
+#define fn_NANDRead      ((NANDRead_t)0x802AB360)
+#define fn_NANDSeek      ((NANDSeek_t)0x802AB540)
+#define fn_NANDGetLength ((NANDGetLength_t)0x802AC550)
+
 /* Statically allocated 32-byte aligned NAND structures to prevent stack corruption */
 static NANDFileInfo s_StaticNandInfo __attribute__((aligned(32)));
-static u8 s_StaticNandBuf[32768] __attribute__((aligned(32)));
-
-
+static u8 s_StaticNandBuf[64 * 1024] __attribute__((aligned(32)));
 
 static inline void shim_DCFlushRange(void* addr, u32 len) {
     u32 start = (u32)addr & ~31;
@@ -212,26 +204,11 @@ static inline void* GetR13(void) {
     return r13;
 }
 
-/*
- * Content[2] reader via NANDOpen / NANDRead / NANDSeek.
- *
- * History of failed approaches:
- *  1. IOS_IoctlvAsync + busy-poll: deadlocked in Dolphin.
- *  2. IOS_Open + IOS_Read direct: fn_IOS_Read (0x802B9FE0) is actually
- *     IOS_ReadAsync (returns 0 = IPC queued, never blocks).
- *  3. NANDCoreOpen (0x802ACF80): wrong address — calls ISFS_ReadDir, returns -102.
- *  4. fn_IOS_Ioctlv (0x802BA170): wrong function — closes ES, not a generic ioctlv.
- *
- * Correct fix: NANDOpen at 0x802AC240 (confirmed by disassembly: saves r29-r31
- * = path/info/accType, calls NAND_state_check, then NAND_OpenAsync with create=0,
- * then waits). NANDRead (0x802AD6C0) and NANDSeek (0x802AD7A0) are the sync
- * wrappers that block via the NAND module's own message queue — they work from
- * any calling context once NANDOpen has been called.
- */
 static s32 s_NandOpened = 0;
 
 static s32 EnsureContent2Open(void) {
     if (s_NandOpened) return 0;
+
     shim_DCFlushRange(s_Content2Path, sizeof(s_Content2Path));
     shim_DCFlushRange(&s_StaticNandInfo, sizeof(s_StaticNandInfo));
     /* NANDOpen(path, info, accType=1=NAND_OPEN_READ) */
@@ -239,6 +216,7 @@ static s32 EnsureContent2Open(void) {
     fn_OSReport("[SHIM] NANDOpen('%s') = %d\n", s_Content2Path, res);
     if (res != 0) {
         fn_OSReport("[SHIM ERROR] NANDOpen failed: %d\n", res);
+        Blink_Error();
         return res;
     }
     s_NandOpened = 1;
@@ -253,6 +231,8 @@ static s32 EnsureContent2Open(void) {
         (u32)s_StaticNandBuf[2], (u32)s_StaticNandBuf[3]);
     /* Seek back to 0 */
     fn_NANDSeek(&s_StaticNandInfo, 0, 0);
+
+    Blink_Milestone(6); // 6 distinct flashes: NAND archive opened successfully
     return 0;
 }
 
@@ -267,6 +247,12 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
     if (s < 0) {
         fn_OSReport("[SHIM ERROR] NANDSeek(off=%u) = %d\n", offset, s);
         return -1;
+    }
+
+    static int s_first_read_signaled = 0;
+    if (!s_first_read_signaled) {
+        s_first_read_signaled = 1;
+        Blink_Milestone(7); // 7 distinct flashes: Asset stream started
     }
 
     uintptr_t addr = (uintptr_t)dst;
@@ -298,13 +284,13 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
 
         shim_memcpy(out, s_StaticNandBuf, (u32)r);
         shim_DCFlushRange(out, (u32)r);
+
         out += r;
         remaining -= (u32)r;
     }
 
     return (s32)length;
 }
-
 
 static inline const char* normalize_asset_path(const char* s);
 
@@ -445,6 +431,12 @@ void Hook_Trace_Start_Main(void) {
 }
 
 void Hook_MainTrace(int* argc, char*** argv) {
+    static int s_m4_done = 0;
+    if (!s_m4_done) {
+        s_m4_done = 1;
+        Blink_Milestone(4);
+    }
+    
     fn_OSReport("[SHIM] === main(0x8018DC88) entered successfully! ===\n");
     fn_OSReport("[SHIM] Original argc: %d\n", *argc);
     
@@ -707,6 +699,12 @@ static u64 s_FileOpenedMask = 0;
 #endif
 
 s32 Hook_DVDConvertPathToEntrynum(const char* path) {
+    static int s_m5_done = 0;
+    if (!s_m5_done) {
+        s_m5_done = 1;
+        Blink_Milestone(5);
+    }
+    
     fn_OSReport("[DVD] ConvertPathToEntrynum('%s')\n", path ? path : "NULL");
     s32 idx = FindVirtualFile(path);
     if (idx >= 0) {
