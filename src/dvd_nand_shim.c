@@ -167,7 +167,7 @@ typedef s32 (*IOS_Ioctlv_t)(s32 fd, u32 ioctl, u32 cnt_in, u32 cnt_io, ioctlv* v
 
 #define fn_IOS_Open     ((IOS_Open_t)0x802B9D90)
 #define fn_IOS_Close    ((IOS_Close_t)0x802AF110)
-#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802BA170)
+#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802B9FE0)
 
 #define ES_IOCTL_OPEN_CONTENT   0x09
 #define ES_IOCTL_READ_CONTENT   0x0A
@@ -184,7 +184,7 @@ static u8 s_StaticNandBuf[64 * 1024] __attribute__((aligned(32)));
 static s32 s_AlignedCfd __attribute__((aligned(32)));
 static s32 s_AlignedSeekOffset __attribute__((aligned(32)));
 static s32 s_AlignedSeekWhence __attribute__((aligned(32)));
-static u32 s_AlignedContentIndex __attribute__((aligned(32)));
+static u16 s_AlignedContentIndex __attribute__((aligned(32)));
 
 static inline void shim_DCFlushRange(void* addr, u32 len) {
     u32 start = (u32)addr & ~31;
@@ -219,7 +219,7 @@ static s32 EnsureContent2Open(void) {
     s_AlignedContentIndex = 2; /* Content Index 2 for content2.bin */
     ioctlv vec[1] __attribute__((aligned(32)));
     vec[0].data = &s_AlignedContentIndex;
-    vec[0].len = sizeof(s_AlignedContentIndex);
+    vec[0].len = sizeof(s_AlignedContentIndex); /* 2 bytes */
 
     shim_DCFlushRange(&s_AlignedContentIndex, sizeof(s_AlignedContentIndex));
     shim_DCFlushRange(vec, sizeof(vec));
@@ -227,12 +227,12 @@ static s32 EnsureContent2Open(void) {
     s32 cfd = fn_IOS_Ioctlv(s_EsFd, ES_IOCTL_OPEN_CONTENT, 1, 0, vec);
     fn_OSReport("[SHIM] ES_OpenContent(index=2) = %d\n", cfd);
     if (cfd < 0) {
-        fn_OSReport("[SHIM ERROR] ES_OpenContent failed: %d\n", cfd);
-        Blink_Error();
+        fn_OSReport("[SHIM ERROR] ES_OpenContent(index=2) failed with error code %d\n", cfd);
         return cfd;
     }
 
     s_Content2Cfd = cfd;
+    fn_OSReport("[SHIM SUCCESS] Content 2 opened successfully! CFD = %d\n", cfd);
 
     /* Test read: read 32 bytes from offset 0 using ES_ReadContent */
     s_AlignedCfd = s_Content2Cfd;
