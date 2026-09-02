@@ -160,9 +160,13 @@ typedef s32 (*IOS_Open_t)(const char* filepath, u32 mode);
 typedef s32 (*IOS_Close_t)(s32 fd);
 typedef s32 (*IOS_Ioctlv_t)(s32 fd, u32 ioctl, u32 cnt_in, u32 cnt_io, ioctlv* vec);
 
-#define fn_IOS_Open     ((IOS_Open_t)0x802B9D90)
-#define fn_IOS_Close    ((IOS_Close_t)0x802B9E60)
-#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802BA200)
+extern s32 Call_IOS_Open(const char* filepath, u32 mode);
+extern s32 Call_IOS_Close(s32 fd);
+extern s32 Call_IOS_Ioctlv(s32 fd, u32 ioctl, u32 cnt_in, u32 cnt_io, ioctlv* vec);
+
+#define fn_IOS_Open     Call_IOS_Open
+#define fn_IOS_Close    Call_IOS_Close
+#define fn_IOS_Ioctlv   Call_IOS_Ioctlv
 
 #define ES_IOCTL_OPEN_CONTENT   0x09
 #define ES_IOCTL_READ_CONTENT   0x0A

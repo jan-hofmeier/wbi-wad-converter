@@ -1,3 +1,48 @@
+.global Call_IOS_Open
+.type Call_IOS_Open, @function
+Call_IOS_Open:
+    stwu 1, -32(1)
+    mflr 0
+    stw 0, 36(1)
+    lis 12, 0x802B
+    ori 12, 12, 0x9D90
+    mtctr 12
+    bctrl
+    lwz 0, 36(1)
+    mtlr 0
+    addi 1, 1, 32
+    blr
+
+.global Call_IOS_Close
+.type Call_IOS_Close, @function
+Call_IOS_Close:
+    stwu 1, -32(1)
+    mflr 0
+    stw 0, 36(1)
+    lis 12, 0x802B
+    ori 12, 12, 0x9E60
+    mtctr 12
+    bctrl
+    lwz 0, 36(1)
+    mtlr 0
+    addi 1, 1, 32
+    blr
+
+.global Call_IOS_Ioctlv
+.type Call_IOS_Ioctlv, @function
+Call_IOS_Ioctlv:
+    stwu 1, -32(1)
+    mflr 0
+    stw 0, 36(1)
+    lis 12, 0x802B
+    ori 12, 12, 0xA200
+    mtctr 12
+    bctrl
+    lwz 0, 36(1)
+    mtlr 0
+    addi 1, 1, 32
+    blr
+
 .global Hook_MainEntry
 .type Hook_MainEntry, @function
 Hook_MainEntry:
