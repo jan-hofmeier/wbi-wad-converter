@@ -179,9 +179,13 @@ static s32 s_Content2Cfd __attribute__((aligned(32))) = -1;
 static char s_EsPath[] __attribute__((aligned(32))) = "/dev/es";
 static u8 s_StaticNandBuf[64 * 1024] __attribute__((aligned(32)));
 
+/* Forward declarations of ES helper functions */
+static s32 ES_SeekContent(s32 cfd, s32 offset, s32 whence);
+static s32 ES_ReadContent(s32 cfd, void* buf, u32 len);
+
 /* Dedicated static aligned buffers for ES vector IPC arguments */
 static s32 s_AlignedCfd __attribute__((aligned(32)));
-static s32 s_AlignedSeekOffset __attribute__((aligned(32)));
+static s64 s_AlignedSeekOffset __attribute__((aligned(32)));
 static s32 s_AlignedSeekWhence __attribute__((aligned(32)));
 static u16 s_AlignedContentIndex __attribute__((aligned(32)));
 
@@ -227,6 +231,17 @@ static s32 EnsureContent2Open(void) {
     fn_OSReport("[SHIM] ES_OpenContent(index=2) = %d\n", cfd);
     if (cfd < 0) {
         fn_OSReport("[SHIM ERROR] ES_OpenContent(index=2) failed with error code %d\n", cfd);
+        /* Try index 2 as u32 if u16 returned error */
+        u32 index_u32 __attribute__((aligned(32))) = 2;
+        ioctlv vec_u32[1] __attribute__((aligned(32)));
+        vec_u32[0].data = &index_u32;
+        vec_u32[0].len = sizeof(index_u32);
+        shim_DCFlushRange(&index_u32, sizeof(index_u32));
+        shim_DCFlushRange(vec_u32, sizeof(vec_u32));
+        cfd = fn_IOS_Ioctlv(s_EsFd, ES_IOCTL_OPEN_CONTENT, 1, 0, vec_u32);
+        fn_OSReport("[SHIM] Retry ES_OpenContent(u32 index=2) = %d\n", cfd);
+    }
+    if (cfd < 0) {
         return cfd;
     }
 
@@ -234,43 +249,13 @@ static s32 EnsureContent2Open(void) {
     fn_OSReport("[SHIM SUCCESS] Content 2 opened successfully! CFD = %d\n", cfd);
 
     /* Test read: read 32 bytes from offset 0 using ES_ReadContent */
-    s_AlignedCfd = s_Content2Cfd;
-    ioctlv read_vec[2] __attribute__((aligned(32)));
-    read_vec[0].data = &s_AlignedCfd;
-    read_vec[0].len = sizeof(s_AlignedCfd);
-    read_vec[1].data = s_StaticNandBuf;
-    read_vec[1].len = 32;
-
-    shim_DCFlushRange(&s_AlignedCfd, sizeof(s_AlignedCfd));
-    shim_DCFlushRange(s_StaticNandBuf, 32);
-    shim_DCFlushRange(read_vec, sizeof(read_vec));
-
-    s32 r = fn_IOS_Ioctlv(s_EsFd, ES_IOCTL_READ_CONTENT, 1, 1, read_vec);
-    (void)r;
-    shim_DCFlushRange(s_StaticNandBuf, 32);
+    s32 r = ES_ReadContent(s_Content2Cfd, s_StaticNandBuf, 32);
     fn_OSReport("[SHIM] ES_ReadContent test: %d bytes, hdr=%02X%02X%02X%02X\n",
         r, (u32)s_StaticNandBuf[0], (u32)s_StaticNandBuf[1],
         (u32)s_StaticNandBuf[2], (u32)s_StaticNandBuf[3]);
 
     /* Seek back to offset 0 */
-    s_AlignedCfd = s_Content2Cfd;
-    s_AlignedSeekOffset = 0;
-    s_AlignedSeekWhence = 0;
-
-    ioctlv seek_vec[3] __attribute__((aligned(32)));
-    seek_vec[0].data = &s_AlignedCfd;
-    seek_vec[0].len = sizeof(s_AlignedCfd);
-    seek_vec[1].data = &s_AlignedSeekOffset;
-    seek_vec[1].len = sizeof(s_AlignedSeekOffset);
-    seek_vec[2].data = &s_AlignedSeekWhence;
-    seek_vec[2].len = sizeof(s_AlignedSeekWhence);
-
-    shim_DCFlushRange(&s_AlignedCfd, sizeof(s_AlignedCfd));
-    shim_DCFlushRange(&s_AlignedSeekOffset, sizeof(s_AlignedSeekOffset));
-    shim_DCFlushRange(&s_AlignedSeekWhence, sizeof(s_AlignedSeekWhence));
-    shim_DCFlushRange(seek_vec, sizeof(seek_vec));
-
-    fn_IOS_Ioctlv(s_EsFd, ES_IOCTL_SEEK_CONTENT, 3, 0, seek_vec);
+    ES_SeekContent(s_Content2Cfd, 0, 0);
 
     Blink_Milestone(6); // 6 distinct flashes: ES content 2 opened successfully
     return 0;
@@ -278,7 +263,7 @@ static s32 EnsureContent2Open(void) {
 
 static s32 ES_SeekContent(s32 cfd, s32 offset, s32 whence) {
     s_AlignedCfd = cfd;
-    s_AlignedSeekOffset = offset;
+    s_AlignedSeekOffset = (s64)offset;
     s_AlignedSeekWhence = whence;
 
     ioctlv seek_vec[3] __attribute__((aligned(32)));
