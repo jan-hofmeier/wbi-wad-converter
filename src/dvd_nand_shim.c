@@ -13,17 +13,12 @@ typedef unsigned long uintptr_t;
 #define NULL ((void*)0)
 
 #ifndef ENABLE_LOGGING
-#define ENABLE_LOGGING 0
+#define ENABLE_LOGGING 1
 #endif
 
-#if ENABLE_LOGGING
 typedef void (*OSReport_t)(const char* fmt, ...);
 #define fn_OSReport ((OSReport_t)0x80276100)
 #define SHIM_LOG(...) fn_OSReport(__VA_ARGS__)
-#else
-#define fn_OSReport(...) ((void)0)
-#define SHIM_LOG(...) ((void)0)
-#endif
 
 typedef struct DVDCommandBlock DVDCommandBlock;
 typedef struct DVDFileInfo DVDFileInfo;
@@ -166,8 +161,8 @@ typedef s32 (*IOS_Close_t)(s32 fd);
 typedef s32 (*IOS_Ioctlv_t)(s32 fd, u32 ioctl, u32 cnt_in, u32 cnt_io, ioctlv* vec);
 
 #define fn_IOS_Open     ((IOS_Open_t)0x802B9D90)
-#define fn_IOS_Close    ((IOS_Close_t)0x802AF110)
-#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802B9FE0)
+#define fn_IOS_Close    ((IOS_Close_t)0x802B9E60)
+#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802BA170)
 
 #define ES_IOCTL_OPEN_CONTENT   0x09
 #define ES_IOCTL_READ_CONTENT   0x0A
