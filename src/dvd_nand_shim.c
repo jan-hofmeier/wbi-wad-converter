@@ -156,7 +156,7 @@ static VirtualFileEntry s_FileTable[] = {
 };
 #define NUM_VIRTUAL_FILES 54
 
-typedef struct __attribute__((aligned(32))) ioctlv {
+typedef struct ioctlv {
     void* data;
     u32 len;
 } ioctlv;
@@ -184,7 +184,7 @@ static u8 s_StaticNandBuf[64 * 1024] __attribute__((aligned(32)));
 static s32 s_AlignedCfd __attribute__((aligned(32)));
 static s32 s_AlignedSeekOffset __attribute__((aligned(32)));
 static s32 s_AlignedSeekWhence __attribute__((aligned(32)));
-static u16 s_AlignedContentIndex __attribute__((aligned(32)));
+static u32 s_AlignedContentIndex __attribute__((aligned(32)));
 
 static inline void shim_DCFlushRange(void* addr, u32 len) {
     u32 start = (u32)addr & ~31;
@@ -339,7 +339,7 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
         shim_DCFlushRange(dst, length);
         s32 r = ES_ReadContent(s_Content2Cfd, dst, length);
         shim_DCFlushRange(dst, length);
-        if (r == (s32)length) {
+        if (r >= 0) {
             return (s32)length;
         }
     }
@@ -353,17 +353,17 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
 
         shim_DCFlushRange(s_StaticNandBuf, chunk);
         s32 r = ES_ReadContent(s_Content2Cfd, s_StaticNandBuf, chunk);
-        if (r <= 0) {
+        if (r < 0) {
             fn_OSReport("[SHIM ERROR] ES_ReadContent(len=%u) = %d\n", chunk, r);
             return -1;
         }
         shim_DCFlushRange(s_StaticNandBuf, chunk);
 
-        shim_memcpy(out, s_StaticNandBuf, (u32)r);
-        shim_DCFlushRange(out, (u32)r);
+        shim_memcpy(out, s_StaticNandBuf, chunk);
+        shim_DCFlushRange(out, chunk);
 
-        out += r;
-        remaining -= (u32)r;
+        out += chunk;
+        remaining -= chunk;
     }
 
     return (s32)length;
