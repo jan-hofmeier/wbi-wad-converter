@@ -162,7 +162,7 @@ typedef s32 (*IOS_Ioctlv_t)(s32 fd, u32 ioctl, u32 cnt_in, u32 cnt_io, ioctlv* v
 
 #define fn_IOS_Open     ((IOS_Open_t)0x802B9D90)
 #define fn_IOS_Close    ((IOS_Close_t)0x802B9E60)
-#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802BA0B0)
+#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802BA200)
 
 #define ES_IOCTL_OPEN_CONTENT   0x09
 #define ES_IOCTL_READ_CONTENT   0x0A
