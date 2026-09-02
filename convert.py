@@ -62,7 +62,7 @@ def build_shim_from_source(devkitpro_path=None, enable_debug_flash=False):
     print(f"Compiling DVD-NAND shim from source (Debug Flash: {'ON' if enable_debug_flash else 'OFF'})...")
     cflags = [
         "-O2", "-Wall", "-m32", "-mhard-float", "-meabi", "-mno-sdata",
-        "-nostartfiles", "-nodefaultlibs", "-fno-builtin", "-fno-tree-loop-distribute-patterns",
+        "-nostartfiles", "-nodefaultlibs", "-fno-builtin", "-fno-stack-protector", "-fno-tree-loop-distribute-patterns",
         flash_flag,
         "-T", os.path.join(src_dir, "shim.ld"),
         f"-Wl,-Map={map_path}",
