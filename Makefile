@@ -6,7 +6,7 @@ PPC_OBJCOPY= $(DEVKITPPC)/bin/powerpc-eabi-objcopy
 HOST_CC   ?= gcc
 
 ENABLE_SENSOR_FLASH ?= 0
-CFLAGS = -O2 -Wall -m32 -mhard-float -meabi -mno-sdata -nostartfiles -nodefaultlibs -fno-builtin -fno-tree-loop-distribute-patterns -DENABLE_SENSOR_FLASH=$(ENABLE_SENSOR_FLASH)
+CFLAGS = -O2 -Wall -m32 -mhard-float -meabi -mno-sdata -nostartfiles -nodefaultlibs -fno-builtin -fno-stack-protector -fno-tree-loop-distribute-patterns -DENABLE_SENSOR_FLASH=$(ENABLE_SENSOR_FLASH)
 
 .PHONY: all shim tools release wad clean
 

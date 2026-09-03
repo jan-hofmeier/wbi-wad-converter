@@ -18,7 +18,7 @@ typedef unsigned long uintptr_t;
 
 #if ENABLE_LOGGING
 typedef void (*OSReport_t)(const char* fmt, ...);
-#define fn_OSReport ((OSReport_t)0x80276100)
+#define fn_OSReport ((OSReport_t)0x80279F20)
 #define SHIM_LOG(...) fn_OSReport(__VA_ARGS__)
 #else
 #define fn_OSReport(...) ((void)0)
@@ -156,36 +156,43 @@ static VirtualFileEntry s_FileTable[] = {
 };
 #define NUM_VIRTUAL_FILES 54
 
-typedef struct NANDFileInfo {
-    u32 fd;
-    u32 origStartAddr;
-    u32 length;
-    u32 position;
-    u32 reserved[4];
-} NANDFileInfo __attribute__((aligned(32)));
+typedef struct ioctlv {
+    void* data;
+    u32 len;
+} ioctlv;
 
-typedef s32 (*NANDOpen_t)(const char* path, NANDFileInfo* info, u8 accType);
-typedef s32 (*NANDClose_t)(NANDFileInfo* info);
-typedef s32 (*NANDRead_t)(NANDFileInfo* info, void* buf, u32 len);
-typedef s32 (*NANDSeek_t)(NANDFileInfo* info, s32 offset, s32 whence);
-typedef s32 (*NANDGetLength_t)(NANDFileInfo* info, u32* length);
+typedef s32 (*IOS_Open_t)(const char* filepath, u32 mode);
+typedef s32 (*IOS_Close_t)(s32 fd);
+typedef s32 (*IOS_Ioctlv_t)(s32 fd, u32 ioctl, u32 cnt_in, u32 cnt_io, ioctlv* vec);
 
-#define fn_IOS_InitIPC  ((s32 (*)(void))0x802AE9A0)
-#define fn_IOS_Open     ((IOS_Open_t)0x802B9D90)
-#define fn_IOS_Close    ((IOS_Close_t)0x802AF110)
-#define fn_IOS_Read     ((IOS_Read_t)0x802B9FE0)
-#define fn_IOS_Seek     ((IOS_Seek_t)0x802BA0B0)
-#define fn_IOS_Ioctl    ((IOS_Ioctl_t)0x802B9F30)
+extern s32 Call_IOS_Open(const char* filepath, u32 mode);
+extern s32 Call_IOS_Close(s32 fd);
+extern s32 Call_IOS_Ioctlv(s32 fd, u32 ioctl, u32 cnt_in, u32 cnt_io, ioctlv* vec);
 
-#define fn_NANDOpen      ((NANDOpen_t)0x802AC240)
-#define fn_NANDClose     ((NANDClose_t)0x802AC4E0)
-#define fn_NANDRead      ((NANDRead_t)0x802AB360)
-#define fn_NANDSeek      ((NANDSeek_t)0x802AB540)
-#define fn_NANDGetLength ((NANDGetLength_t)0x802AC550)
+#define fn_IOS_Open     Call_IOS_Open
+#define fn_IOS_Close    Call_IOS_Close
+#define fn_IOS_Ioctlv   Call_IOS_Ioctlv
 
-/* Statically allocated 32-byte aligned NAND structures to prevent stack corruption */
-static NANDFileInfo s_StaticNandInfo __attribute__((aligned(32)));
+#define ES_IOCTL_OPEN_CONTENT   0x09
+#define ES_IOCTL_READ_CONTENT   0x0A
+#define ES_IOCTL_CLOSE_CONTENT  0x0B
+#define ES_IOCTL_SEEK_CONTENT   0x23
+
+/* Statically allocated 32-byte aligned ES structures to prevent stack corruption and alignment faults */
+static s32 s_EsFd __attribute__((aligned(32))) = -1;
+static s32 s_Content2Cfd __attribute__((aligned(32))) = -1;
+static char s_EsPath[] __attribute__((aligned(32))) = "/dev/es";
 static u8 s_StaticNandBuf[64 * 1024] __attribute__((aligned(32)));
+
+/* Forward declarations of ES helper functions */
+static s32 ES_SeekContent(s32 cfd, s32 offset, s32 whence);
+static s32 ES_ReadContent(s32 cfd, void* buf, u32 len);
+
+/* Dedicated static aligned buffers for ES vector IPC arguments */
+static s32 s_AlignedCfd __attribute__((aligned(32)));
+static s64 s_AlignedSeekOffset __attribute__((aligned(32)));
+static s32 s_AlignedSeekWhence __attribute__((aligned(32)));
+static u16 s_AlignedContentIndex __attribute__((aligned(32)));
 
 static inline void shim_DCFlushRange(void* addr, u32 len) {
     u32 start = (u32)addr & ~31;
@@ -196,44 +203,98 @@ static inline void shim_DCFlushRange(void* addr, u32 len) {
     asm volatile("sync; isync" : : : "memory");
 }
 
-static char s_Content2Path[] __attribute__((aligned(32))) = "/title/00010001/53494c50/content/00000002.app";
-
 static inline void* GetR13(void) {
     void* r13;
     __asm__ volatile("mr %0, 13" : "=r"(r13));
     return r13;
 }
 
-static s32 s_NandOpened = 0;
-
 static s32 EnsureContent2Open(void) {
-    if (s_NandOpened) return 0;
+    if (s_Content2Cfd >= 0) return 0;
 
-    shim_DCFlushRange(s_Content2Path, sizeof(s_Content2Path));
-    shim_DCFlushRange(&s_StaticNandInfo, sizeof(s_StaticNandInfo));
-    /* NANDOpen(path, info, accType=1=NAND_OPEN_READ) */
-    s32 res = fn_NANDOpen(s_Content2Path, &s_StaticNandInfo, 1);
-    fn_OSReport("[SHIM] NANDOpen('%s') = %d\n", s_Content2Path, res);
-    if (res != 0) {
-        fn_OSReport("[SHIM ERROR] NANDOpen failed: %d\n", res);
-        Blink_Error();
-        return res;
+    if (s_EsFd < 0) {
+        shim_DCFlushRange(s_EsPath, sizeof(s_EsPath));
+        s_EsFd = fn_IOS_Open(s_EsPath, 0);
+        fn_OSReport("[SHIM] IOS_Open('/dev/es') = %d\n", s_EsFd);
+        if (s_EsFd < 0) {
+            fn_OSReport("[SHIM ERROR] Failed to open /dev/es: %d\n", s_EsFd);
+            Blink_Error();
+            return s_EsFd;
+        }
     }
-    s_NandOpened = 1;
 
-    /* Test read: read 32 bytes from offset 0 */
-    shim_DCFlushRange(s_StaticNandBuf, 32);
-    s32 r = fn_NANDRead(&s_StaticNandInfo, s_StaticNandBuf, 32);
-    (void)r;
-    shim_DCFlushRange(s_StaticNandBuf, 32);
-    fn_OSReport("[SHIM] NANDRead test: %d bytes, hdr=%02X%02X%02X%02X\n",
-        r, (u32)s_StaticNandBuf[0], (u32)s_StaticNandBuf[1],
-        (u32)s_StaticNandBuf[2], (u32)s_StaticNandBuf[3]);
-    /* Seek back to 0 */
-    fn_NANDSeek(&s_StaticNandInfo, 0, 0);
+    /* ES_OpenContent(u16 index) => ioctl 0x09, 1 in vector, 0 out vector */
+    s_AlignedContentIndex = 2; /* Content Index 2 for content2.bin */
+    ioctlv vec[1] __attribute__((aligned(32)));
+    vec[0].data = &s_AlignedContentIndex;
+    vec[0].len = sizeof(s_AlignedContentIndex); /* 2 bytes */
 
-    Blink_Milestone(6); // 6 distinct flashes: NAND archive opened successfully
+    shim_DCFlushRange(&s_AlignedContentIndex, sizeof(s_AlignedContentIndex));
+    shim_DCFlushRange(vec, sizeof(vec));
+
+    s32 cfd = fn_IOS_Ioctlv(s_EsFd, ES_IOCTL_OPEN_CONTENT, 1, 0, vec);
+    if (cfd < 0) {
+        /* Try index 2 as u32 if u16 returned error */
+        u32 index_u32 __attribute__((aligned(32))) = 2;
+        ioctlv vec_u32[1] __attribute__((aligned(32)));
+        vec_u32[0].data = &index_u32;
+        vec_u32[0].len = sizeof(index_u32);
+        shim_DCFlushRange(&index_u32, sizeof(index_u32));
+        shim_DCFlushRange(vec_u32, sizeof(vec_u32));
+        cfd = fn_IOS_Ioctlv(s_EsFd, ES_IOCTL_OPEN_CONTENT, 1, 0, vec_u32);
+    }
+    if (cfd < 0) {
+        return cfd;
+    }
+
+    s_Content2Cfd = cfd;
+
+    /* Test read: read 32 bytes from offset 0 using ES_ReadContent */
+    ES_ReadContent(s_Content2Cfd, s_StaticNandBuf, 32);
+
+    /* Seek back to offset 0 */
+    ES_SeekContent(s_Content2Cfd, 0, 0);
+
+    Blink_Milestone(6); // 6 distinct flashes: ES content 2 opened successfully
     return 0;
+}
+
+static s32 ES_SeekContent(s32 cfd, s32 offset, s32 whence) {
+    s_AlignedCfd = cfd;
+    s_AlignedSeekOffset = (s64)offset;
+    s_AlignedSeekWhence = whence;
+
+    ioctlv seek_vec[3] __attribute__((aligned(32)));
+    seek_vec[0].data = &s_AlignedCfd;
+    seek_vec[0].len = sizeof(s_AlignedCfd);
+    seek_vec[1].data = &s_AlignedSeekOffset;
+    seek_vec[1].len = sizeof(s_AlignedSeekOffset);
+    seek_vec[2].data = &s_AlignedSeekWhence;
+    seek_vec[2].len = sizeof(s_AlignedSeekWhence);
+
+    shim_DCFlushRange(&s_AlignedCfd, sizeof(s_AlignedCfd));
+    shim_DCFlushRange(&s_AlignedSeekOffset, sizeof(s_AlignedSeekOffset));
+    shim_DCFlushRange(&s_AlignedSeekWhence, sizeof(s_AlignedSeekWhence));
+    shim_DCFlushRange(seek_vec, sizeof(seek_vec));
+
+    return fn_IOS_Ioctlv(s_EsFd, ES_IOCTL_SEEK_CONTENT, 3, 0, seek_vec);
+}
+
+static s32 ES_ReadContent(s32 cfd, void* buf, u32 len) {
+    s_AlignedCfd = cfd;
+
+    u32 align_len = (len + 31) & ~31;
+
+    ioctlv read_vec[2] __attribute__((aligned(32)));
+    read_vec[0].data = &s_AlignedCfd;
+    read_vec[0].len = sizeof(s_AlignedCfd);
+    read_vec[1].data = buf;
+    read_vec[1].len = align_len;
+
+    shim_DCFlushRange(&s_AlignedCfd, sizeof(s_AlignedCfd));
+    shim_DCFlushRange(read_vec, sizeof(read_vec));
+
+    return fn_IOS_Ioctlv(s_EsFd, ES_IOCTL_READ_CONTENT, 1, 1, read_vec);
 }
 
 static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
@@ -242,10 +303,10 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
         return -1;
     }
 
-    /* NANDSeek(info, offset, SEEK_SET=0) */
-    s32 s = fn_NANDSeek(&s_StaticNandInfo, (s32)offset, 0);
+    /* ES_SeekContent(cfd, offset, SEEK_SET=0) */
+    s32 s = ES_SeekContent(s_Content2Cfd, (s32)offset, 0);
     if (s < 0) {
-        fn_OSReport("[SHIM ERROR] NANDSeek(off=%u) = %d\n", offset, s);
+        fn_OSReport("[SHIM ERROR] ES_SeekContent(off=%u) = %d\n", offset, s);
         return -1;
     }
 
@@ -260,9 +321,9 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
      * and destination is within MEM1 (0x80000000..0x817FFFFF), DMA directly into dst. */
     if ((addr & 31) == 0 && (length & 31) == 0 && addr >= 0x80000000 && (addr + length) <= 0x81800000) {
         shim_DCFlushRange(dst, length);
-        s32 r = fn_NANDRead(&s_StaticNandInfo, dst, length);
+        s32 r = ES_ReadContent(s_Content2Cfd, dst, length);
         shim_DCFlushRange(dst, length);
-        if (r == (s32)length) {
+        if (r >= 0) {
             return (s32)length;
         }
     }
@@ -275,18 +336,18 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
         if (chunk > sizeof(s_StaticNandBuf)) chunk = sizeof(s_StaticNandBuf);
 
         shim_DCFlushRange(s_StaticNandBuf, chunk);
-        s32 r = fn_NANDRead(&s_StaticNandInfo, s_StaticNandBuf, chunk);
-        if (r <= 0) {
-            fn_OSReport("[SHIM ERROR] NANDRead(len=%u) = %d\n", chunk, r);
+        s32 r = ES_ReadContent(s_Content2Cfd, s_StaticNandBuf, chunk);
+        if (r < 0) {
+            fn_OSReport("[SHIM ERROR] ES_ReadContent(len=%u) = %d\n", chunk, r);
             return -1;
         }
         shim_DCFlushRange(s_StaticNandBuf, chunk);
 
-        shim_memcpy(out, s_StaticNandBuf, (u32)r);
-        shim_DCFlushRange(out, (u32)r);
+        shim_memcpy(out, s_StaticNandBuf, chunk);
+        shim_DCFlushRange(out, chunk);
 
-        out += r;
-        remaining -= (u32)r;
+        out += chunk;
+        remaining -= chunk;
     }
 
     return (s32)length;
