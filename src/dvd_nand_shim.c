@@ -283,11 +283,13 @@ static s32 ES_SeekContent(s32 cfd, s32 offset, s32 whence) {
 static s32 ES_ReadContent(s32 cfd, void* buf, u32 len) {
     s_AlignedCfd = cfd;
 
+    u32 align_len = (len + 31) & ~31;
+
     ioctlv read_vec[2] __attribute__((aligned(32)));
     read_vec[0].data = &s_AlignedCfd;
     read_vec[0].len = sizeof(s_AlignedCfd);
     read_vec[1].data = buf;
-    read_vec[1].len = len;
+    read_vec[1].len = align_len;
 
     shim_DCFlushRange(&s_AlignedCfd, sizeof(s_AlignedCfd));
     shim_DCFlushRange(read_vec, sizeof(read_vec));

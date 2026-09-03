@@ -35,7 +35,7 @@ Call_IOS_Ioctlv:
     mflr 0
     stw 0, 60(1)
     lis 12, 0x802B
-    ori 12, 12, 0xA200
+    ori 12, 12, 0x9FE0
     mtctr 12
     bctrl
     lwz 0, 60(1)
