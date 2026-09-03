@@ -13,12 +13,17 @@ typedef unsigned long uintptr_t;
 #define NULL ((void*)0)
 
 #ifndef ENABLE_LOGGING
-#define ENABLE_LOGGING 1
+#define ENABLE_LOGGING 0
 #endif
 
+#if ENABLE_LOGGING
 typedef void (*OSReport_t)(const char* fmt, ...);
 #define fn_OSReport ((OSReport_t)0x80276100)
 #define SHIM_LOG(...) fn_OSReport(__VA_ARGS__)
+#else
+#define fn_OSReport(...) ((void)0)
+#define SHIM_LOG(...) ((void)0)
+#endif
 
 typedef struct DVDCommandBlock DVDCommandBlock;
 typedef struct DVDFileInfo DVDFileInfo;
@@ -228,9 +233,7 @@ static s32 EnsureContent2Open(void) {
     shim_DCFlushRange(vec, sizeof(vec));
 
     s32 cfd = fn_IOS_Ioctlv(s_EsFd, ES_IOCTL_OPEN_CONTENT, 1, 0, vec);
-    fn_OSReport("[SHIM] ES_OpenContent(index=2) = %d\n", cfd);
     if (cfd < 0) {
-        fn_OSReport("[SHIM ERROR] ES_OpenContent(index=2) failed with error code %d\n", cfd);
         /* Try index 2 as u32 if u16 returned error */
         u32 index_u32 __attribute__((aligned(32))) = 2;
         ioctlv vec_u32[1] __attribute__((aligned(32)));
@@ -239,20 +242,15 @@ static s32 EnsureContent2Open(void) {
         shim_DCFlushRange(&index_u32, sizeof(index_u32));
         shim_DCFlushRange(vec_u32, sizeof(vec_u32));
         cfd = fn_IOS_Ioctlv(s_EsFd, ES_IOCTL_OPEN_CONTENT, 1, 0, vec_u32);
-        fn_OSReport("[SHIM] Retry ES_OpenContent(u32 index=2) = %d\n", cfd);
     }
     if (cfd < 0) {
         return cfd;
     }
 
     s_Content2Cfd = cfd;
-    fn_OSReport("[SHIM SUCCESS] Content 2 opened successfully! CFD = %d\n", cfd);
 
     /* Test read: read 32 bytes from offset 0 using ES_ReadContent */
-    s32 r = ES_ReadContent(s_Content2Cfd, s_StaticNandBuf, 32);
-    fn_OSReport("[SHIM] ES_ReadContent test: %d bytes, hdr=%02X%02X%02X%02X\n",
-        r, (u32)s_StaticNandBuf[0], (u32)s_StaticNandBuf[1],
-        (u32)s_StaticNandBuf[2], (u32)s_StaticNandBuf[3]);
+    ES_ReadContent(s_Content2Cfd, s_StaticNandBuf, 32);
 
     /* Seek back to offset 0 */
     ES_SeekContent(s_Content2Cfd, 0, 0);
