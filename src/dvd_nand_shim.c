@@ -190,7 +190,7 @@ static s32 ES_ReadContent(s32 cfd, void* buf, u32 len);
 
 /* Dedicated static aligned buffers for ES vector IPC arguments */
 static s32 s_AlignedCfd __attribute__((aligned(32)));
-static s64 s_AlignedSeekOffset __attribute__((aligned(32)));
+static s32 s_AlignedSeekOffset __attribute__((aligned(32)));
 static s32 s_AlignedSeekWhence __attribute__((aligned(32)));
 static u16 s_AlignedContentIndex __attribute__((aligned(32)));
 
