@@ -271,20 +271,28 @@ static s32 ES_ReadContent(s32 cfd, void* data, u32 data_size) {
 static s32 ES_SeekContent(s32 cfd, s32 where, s32 whence) {
     if (s_EsFd < 0 || cfd < 0) return -1;
 
-    static ioctlv vec[1] __attribute__((aligned(32)));
-    static s32 args[3] __attribute__((aligned(32)));
+    static ioctlv vec[3] __attribute__((aligned(32)));
+    static s32 cfd_arg __attribute__((aligned(32)));
+    static s32 where_arg __attribute__((aligned(32)));
+    static s32 whence_arg __attribute__((aligned(32)));
 
-    args[0] = cfd;
-    args[1] = where;
-    args[2] = whence;
+    cfd_arg = cfd;
+    where_arg = where;
+    whence_arg = whence;
 
-    vec[0].data = args;
-    vec[0].len = sizeof(args);
+    vec[0].data = &cfd_arg;
+    vec[0].len = sizeof(s32);
+    vec[1].data = &where_arg;
+    vec[1].len = sizeof(s32);
+    vec[2].data = &whence_arg;
+    vec[2].len = sizeof(s32);
 
-    shim_DCFlushRange(args, sizeof(args));
+    shim_DCFlushRange(&cfd_arg, sizeof(cfd_arg));
+    shim_DCFlushRange(&where_arg, sizeof(where_arg));
+    shim_DCFlushRange(&whence_arg, sizeof(whence_arg));
     shim_DCFlushRange(vec, sizeof(vec));
 
-    return fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_SEEKCONTENT, 1, 0, vec);
+    return fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_SEEKCONTENT, 3, 0, vec);
 }
 
 static s32 __attribute__((unused)) ES_CloseContent(s32 cfd) {
