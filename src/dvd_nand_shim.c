@@ -167,7 +167,7 @@ typedef s32 (*IOS_Ioctlv_t)(s32 fd, s32 ioctl, u32 cnt_in, u32 cnt_out, ioctlv* 
 
 #define fn_IOS_Open     ((IOS_Open_t)0x802B9D90)
 #define fn_IOS_Close    ((IOS_Close_t)0x802AF110)
-#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802B9FC0)
+#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802BA0C0)
 
 #define IOCTL_ES_OPENCONTENT  0x09
 #define IOCTL_ES_READCONTENT  0x0A
@@ -181,10 +181,9 @@ static u8 s_StaticEsBuf[64 * 1024] __attribute__((aligned(32)));
 static char s_EsDevicePath[] __attribute__((aligned(32))) = "/dev/es";
 
 /*
- * Cache management for PowerPC (Broadway - Bare Metal):
- * Matching libogc processor.h / cache.S semantics for bare-metal execution:
- * - shim_DCFlushRange (dcbf) flushes dirty cache lines to physical RAM before DMA.
- * - shim_DCInvalidateRange (dcbi) invalidates L1/L2 cache lines after DMA without writeback.
+ * Cache management for PowerPC (Broadway):
+ * dcbf (Data Cache Block Flush) flushes dirty cache lines to physical RAM AND invalidates
+ * the cache line in L1/L2 cache. Unprivileged and safe for user-space execution.
  */
 static inline void shim_DCFlushRange(void* addr, u32 len) {
     if (!addr || !len) return;
@@ -192,16 +191,6 @@ static inline void shim_DCFlushRange(void* addr, u32 len) {
     u32 end = ((u32)addr + len + 31) & ~31;
     for (u32 p = start; p < end; p += 32) {
         asm volatile("dcbf 0, %0" : : "r"(p) : "memory");
-    }
-    asm volatile("sync; isync" : : : "memory");
-}
-
-static inline void shim_DCInvalidateRange(void* addr, u32 len) {
-    if (!addr || !len) return;
-    u32 start = (u32)addr & ~31;
-    u32 end = ((u32)addr + len + 31) & ~31;
-    for (u32 p = start; p < end; p += 32) {
-        asm volatile("dcbi 0, %0" : : "r"(p) : "memory");
     }
     asm volatile("sync; isync" : : : "memory");
 }
@@ -264,7 +253,7 @@ static s32 ES_ReadContent(s32 cfd, void* data, u32 data_size) {
     shim_DCFlushRange(vec, sizeof(vec));
 
     s32 res = fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_READCONTENT, 1, 1, vec);
-    shim_DCInvalidateRange(data, data_size);
+    shim_DCFlushRange(data, data_size);
     return res;
 }
 
@@ -353,9 +342,7 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
     if ((addr & 31) == 0 && (length & 31) == 0 && addr >= 0x80000000 && (addr + length) <= 0x81800000) {
         s32 s = ES_SeekContent(s_ContentCfd, (s32)offset, 0);
         if (s >= 0) {
-            shim_DCFlushRange(dst, length);
             s32 r = ES_ReadContent(s_ContentCfd, dst, length);
-            shim_DCFlushRange(dst, length);
             if (r == 0) {
                 return (s32)length;
             }
