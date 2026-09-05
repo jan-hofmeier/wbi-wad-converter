@@ -167,7 +167,7 @@ typedef s32 (*IOS_Ioctlv_t)(s32 fd, s32 ioctl, u32 cnt_in, u32 cnt_out, ioctlv* 
 
 #define fn_IOS_Open     ((IOS_Open_t)0x802B9D90)
 #define fn_IOS_Close    ((IOS_Close_t)0x802AF110)
-#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802BA0B0)
+#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802BA270)
 
 #define IOCTL_ES_OPENCONTENT  0x09
 #define IOCTL_ES_READCONTENT  0x0A
@@ -178,6 +178,13 @@ typedef s32 (*IOS_Ioctlv_t)(s32 fd, s32 ioctl, u32 cnt_in, u32 cnt_out, ioctlv* 
 static u8 s_StaticEsBuf[64 * 1024] __attribute__((aligned(32)));
 static char s_EsDevicePath[] __attribute__((aligned(32))) = "/dev/es";
 
+/*
+ * Cache management for PowerPC (Broadway):
+ * dcbf (Data Cache Block Flush) flushes dirty cache lines to physical RAM AND invalidates
+ * the cache line. Because dcbi (invalidate) is a privileged instruction in User Mode,
+ * dcbf is the safe, standard unprivileged instruction for both flushing before DMA
+ * and invalidating L1/L2 cache after IOS DMA writes to RAM.
+ */
 static inline void shim_DCFlushRange(void* addr, u32 len) {
     u32 start = (u32)addr & ~31;
     u32 end = ((u32)addr + len + 31) & ~31;
@@ -340,7 +347,7 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
         shim_DCFlushRange(dst, length);
         s32 r = ES_ReadContent(s_ContentCfd, dst, length);
         shim_DCFlushRange(dst, length);
-        if (r == (s32)length) {
+        if (r == 0) {
             return (s32)length;
         }
     }
@@ -354,17 +361,17 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
 
         shim_DCFlushRange(s_StaticEsBuf, chunk);
         s32 r = ES_ReadContent(s_ContentCfd, s_StaticEsBuf, chunk);
-        if (r <= 0) {
+        if (r < 0) {
             fn_OSReport("[SHIM ERROR] ES_ReadContent(len=%u) = %d\n", chunk, r);
             return -1;
         }
         shim_DCFlushRange(s_StaticEsBuf, chunk);
 
-        shim_memcpy(out, s_StaticEsBuf, (u32)r);
-        shim_DCFlushRange(out, (u32)r);
+        shim_memcpy(out, s_StaticEsBuf, chunk);
+        shim_DCFlushRange(out, chunk);
 
-        out += r;
-        remaining -= (u32)r;
+        out += chunk;
+        remaining -= chunk;
     }
 
     return (s32)length;
