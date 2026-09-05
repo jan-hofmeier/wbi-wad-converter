@@ -260,20 +260,24 @@ static s32 ES_SeekContent(s32 cfd, s32 where, s32 whence) {
     if (s_EsFd < 0 || cfd < 0) return -1;
 
     static ioctlv vec[3] __attribute__((aligned(32)));
-    static s32 args[3] __attribute__((aligned(32)));
+    static s32 cfd_arg __attribute__((aligned(32)));
+    static s32 where_arg __attribute__((aligned(32)));
+    static s32 whence_arg __attribute__((aligned(32)));
 
-    args[0] = cfd;
-    args[1] = where;
-    args[2] = whence;
+    cfd_arg = cfd;
+    where_arg = where;
+    whence_arg = whence;
 
-    vec[0].data = &args[0];
+    vec[0].data = &cfd_arg;
     vec[0].len = sizeof(s32);
-    vec[1].data = &args[1];
+    vec[1].data = &where_arg;
     vec[1].len = sizeof(s32);
-    vec[2].data = &args[2];
+    vec[2].data = &whence_arg;
     vec[2].len = sizeof(s32);
 
-    shim_DCFlushRange(args, sizeof(args));
+    shim_DCFlushRange(&cfd_arg, sizeof(cfd_arg));
+    shim_DCFlushRange(&where_arg, sizeof(where_arg));
+    shim_DCFlushRange(&whence_arg, sizeof(whence_arg));
     shim_DCFlushRange(vec, sizeof(vec));
 
     return fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_SEEKCONTENT, 3, 0, vec);
@@ -307,10 +311,8 @@ static s32 EnsureContent2Open(void) {
     }
 
     /* Test read: read 32 bytes from offset 0 */
-    shim_DCFlushRange(s_StaticEsBuf, 32);
     s32 r = ES_ReadContent(s_ContentCfd, s_StaticEsBuf, 32);
     (void)r;
-    shim_DCFlushRange(s_StaticEsBuf, 32);
     fn_OSReport("[SHIM] ES_ReadContent test: %d bytes, hdr=%02X%02X%02X%02X\n",
         r, (u32)s_StaticEsBuf[0], (u32)s_StaticEsBuf[1],
         (u32)s_StaticEsBuf[2], (u32)s_StaticEsBuf[3]);
@@ -359,13 +361,11 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
         u32 chunk = remaining;
         if (chunk > sizeof(s_StaticEsBuf)) chunk = sizeof(s_StaticEsBuf);
 
-        shim_DCFlushRange(s_StaticEsBuf, chunk);
         s32 r = ES_ReadContent(s_ContentCfd, s_StaticEsBuf, chunk);
         if (r < 0) {
             fn_OSReport("[SHIM ERROR] ES_ReadContent(len=%u) = %d\n", chunk, r);
             return -1;
         }
-        shim_DCFlushRange(s_StaticEsBuf, chunk);
 
         shim_memcpy(out, s_StaticEsBuf, chunk);
         shim_DCFlushRange(out, chunk);
