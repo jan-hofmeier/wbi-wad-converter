@@ -161,13 +161,24 @@ typedef struct ioctlv {
     u32 len;
 } ioctlv;
 
+typedef struct IPCCmd {
+    u32 cmd;        /* 1 = Open, 2 = Close, 3 = Read, 4 = Write, 5 = Seek, 6 = Ioctl, 7 = Ioctlv */
+    s32 result;     /* Return code from IOS */
+    s32 fd;         /* File descriptor */
+    union {
+        struct { const char* path; u32 mode; } open;
+        struct { void* data; u32 len; } read;
+        struct { s32 where; s32 whence; } seek;
+        struct { u32 ioctl; void* in; u32 in_len; void* out; u32 out_len; } ioctl;
+        struct { u32 ioctl; u32 cnt_in; u32 cnt_out; ioctlv* vec; } ioctlv;
+    };
+} IPCCmd;
+
 typedef s32 (*IOS_Open_t)(const char* path, u32 mode);
 typedef s32 (*IOS_Close_t)(s32 fd);
-typedef s32 (*IOS_Ioctlv_t)(s32 fd, s32 ioctl, u32 cnt_in, u32 cnt_out, ioctlv* vec);
 
 #define fn_IOS_Open     ((IOS_Open_t)0x802B9D90)
 #define fn_IOS_Close    ((IOS_Close_t)0x802AF110)
-#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802BA0C0)
 
 #define IOCTL_ES_OPENCONTENT  0x09
 #define IOCTL_ES_READCONTENT  0x0A
@@ -193,6 +204,44 @@ static inline void shim_DCFlushRange(void* addr, u32 len) {
         asm volatile("dcbf 0, %0" : : "r"(p) : "memory");
     }
     asm volatile("sync; isync" : : : "memory");
+}
+
+static s32 (*s_fn_IOS_Ipc)(IPCCmd* cmd) = NULL;
+
+static s32 Init_IOS_Ipc(void) {
+    if (s_fn_IOS_Ipc) return 0;
+    u32* pc = (u32*)0x802B9D90;
+    for (int i = 0; i < 16; i++) {
+        u32 insn = pc[i];
+        if ((insn & 0xFC000003) == 0x48000001) { // 'bl' instruction
+            s32 offset = (s32)(insn & 0x03FFFFFC);
+            if (offset & 0x02000000) offset |= (s32)0xFC000000; // Sign-extend
+            s_fn_IOS_Ipc = (s32 (*)(IPCCmd*))((uintptr_t)&pc[i] + offset);
+            fn_OSReport("[SHIM] Found __IOS_Ipc at 0x%08X\n", (u32)s_fn_IOS_Ipc);
+            return 0;
+        }
+    }
+    fn_OSReport("[SHIM ERROR] Could not find __IOS_Ipc inside IOS_Open\n");
+    return -1;
+}
+
+static s32 shim_IOS_Ioctlv(s32 fd, s32 ioctl, u32 cnt_in, u32 cnt_out, ioctlv* vec) {
+    if (Init_IOS_Ipc() < 0 || !s_fn_IOS_Ipc) return -1;
+
+    static IPCCmd cmd __attribute__((aligned(32)));
+    cmd.cmd = 7; // IOS_IOCTLV
+    cmd.result = 0;
+    cmd.fd = fd;
+    cmd.ioctlv.ioctl = ioctl;
+    cmd.ioctlv.cnt_in = cnt_in;
+    cmd.ioctlv.cnt_out = cnt_out;
+    cmd.ioctlv.vec = vec;
+
+    shim_DCFlushRange(&cmd, sizeof(cmd));
+    s32 res = s_fn_IOS_Ipc(&cmd);
+    shim_DCFlushRange(&cmd, sizeof(cmd));
+
+    return res < 0 ? res : cmd.result;
 }
 
 static inline void* GetR13(void) {
@@ -231,7 +280,7 @@ static s32 ES_OpenContent(u16 index) {
     shim_DCFlushRange(&idx_arg, sizeof(idx_arg));
     shim_DCFlushRange(vec, sizeof(vec));
 
-    s32 cfd = fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_OPENCONTENT, 1, 0, vec);
+    s32 cfd = shim_IOS_Ioctlv(s_EsFd, IOCTL_ES_OPENCONTENT, 1, 0, vec);
     fn_OSReport("[SHIM] ES_OpenContent(index=%u) = %d\n", (u32)index, cfd);
     return cfd;
 }
@@ -252,7 +301,7 @@ static s32 ES_ReadContent(s32 cfd, void* data, u32 data_size) {
     shim_DCFlushRange(data, data_size);
     shim_DCFlushRange(vec, sizeof(vec));
 
-    s32 res = fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_READCONTENT, 1, 1, vec);
+    s32 res = shim_IOS_Ioctlv(s_EsFd, IOCTL_ES_READCONTENT, 1, 1, vec);
     shim_DCFlushRange(data, data_size);
     return res;
 }
@@ -281,7 +330,7 @@ static s32 ES_SeekContent(s32 cfd, s32 where, s32 whence) {
     shim_DCFlushRange(&whence_arg, sizeof(whence_arg));
     shim_DCFlushRange(vec, sizeof(vec));
 
-    return fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_SEEKCONTENT, 3, 0, vec);
+    return shim_IOS_Ioctlv(s_EsFd, IOCTL_ES_SEEKCONTENT, 3, 0, vec);
 }
 
 static s32 __attribute__((unused)) ES_CloseContent(s32 cfd) {
@@ -297,7 +346,7 @@ static s32 __attribute__((unused)) ES_CloseContent(s32 cfd) {
     shim_DCFlushRange(&cfd_arg, sizeof(cfd_arg));
     shim_DCFlushRange(vec, sizeof(vec));
 
-    return fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_CLOSECONTENT, 1, 0, vec);
+    return shim_IOS_Ioctlv(s_EsFd, IOCTL_ES_CLOSECONTENT, 1, 0, vec);
 }
 
 static s32 EnsureContent2Open(void) {
