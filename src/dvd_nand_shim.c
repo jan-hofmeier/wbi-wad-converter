@@ -174,6 +174,8 @@ typedef s32 (*IOS_Ioctlv_t)(s32 fd, s32 ioctl, u32 cnt_in, u32 cnt_out, ioctlv* 
 #define IOCTL_ES_CLOSECONTENT 0x0B
 #define IOCTL_ES_SEEKCONTENT  0x23
 
+#define CONTENT2_TOTAL_SIZE   0x02992380U
+
 /* Statically allocated 32-byte aligned ES structures to prevent stack corruption */
 static u8 s_StaticEsBuf[64 * 1024] __attribute__((aligned(32)));
 static char s_EsDevicePath[] __attribute__((aligned(32))) = "/dev/es";
@@ -285,7 +287,7 @@ static s32 ES_SeekContent(s32 cfd, s32 where, s32 whence) {
     return fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_SEEKCONTENT, 1, 0, vec);
 }
 
-static s32 ES_CloseContent(s32 cfd) {
+static s32 __attribute__((unused)) ES_CloseContent(s32 cfd) {
     if (s_EsFd < 0 || cfd < 0) return -1;
 
     static ioctlv vec[1] __attribute__((aligned(32)));
