@@ -167,7 +167,7 @@ typedef s32 (*IOS_Ioctlv_t)(s32 fd, s32 ioctl, u32 cnt_in, u32 cnt_out, ioctlv* 
 
 #define fn_IOS_Open     ((IOS_Open_t)0x802B9D90)
 #define fn_IOS_Close    ((IOS_Close_t)0x802AF110)
-#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802BA270)
+#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802B9FC0)
 
 #define IOCTL_ES_OPENCONTENT  0x09
 #define IOCTL_ES_READCONTENT  0x0A
@@ -179,17 +179,27 @@ static u8 s_StaticEsBuf[64 * 1024] __attribute__((aligned(32)));
 static char s_EsDevicePath[] __attribute__((aligned(32))) = "/dev/es";
 
 /*
- * Cache management for PowerPC (Broadway):
- * dcbf (Data Cache Block Flush) flushes dirty cache lines to physical RAM AND invalidates
- * the cache line. Because dcbi (invalidate) is a privileged instruction in User Mode,
- * dcbf is the safe, standard unprivileged instruction for both flushing before DMA
- * and invalidating L1/L2 cache after IOS DMA writes to RAM.
+ * Cache management for PowerPC (Broadway - Bare Metal):
+ * Matching libogc processor.h / cache.S semantics for bare-metal execution:
+ * - shim_DCFlushRange (dcbf) flushes dirty cache lines to physical RAM before DMA.
+ * - shim_DCInvalidateRange (dcbi) invalidates L1/L2 cache lines after DMA without writeback.
  */
 static inline void shim_DCFlushRange(void* addr, u32 len) {
+    if (!addr || !len) return;
     u32 start = (u32)addr & ~31;
     u32 end = ((u32)addr + len + 31) & ~31;
     for (u32 p = start; p < end; p += 32) {
         asm volatile("dcbf 0, %0" : : "r"(p) : "memory");
+    }
+    asm volatile("sync; isync" : : : "memory");
+}
+
+static inline void shim_DCInvalidateRange(void* addr, u32 len) {
+    if (!addr || !len) return;
+    u32 start = (u32)addr & ~31;
+    u32 end = ((u32)addr + len + 31) & ~31;
+    for (u32 p = start; p < end; p += 32) {
+        asm volatile("dcbi 0, %0" : : "r"(p) : "memory");
     }
     asm volatile("sync; isync" : : : "memory");
 }
@@ -252,35 +262,27 @@ static s32 ES_ReadContent(s32 cfd, void* data, u32 data_size) {
     shim_DCFlushRange(vec, sizeof(vec));
 
     s32 res = fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_READCONTENT, 1, 1, vec);
-    shim_DCFlushRange(data, data_size);
+    shim_DCInvalidateRange(data, data_size);
     return res;
 }
 
 static s32 ES_SeekContent(s32 cfd, s32 where, s32 whence) {
     if (s_EsFd < 0 || cfd < 0) return -1;
 
-    static ioctlv vec[3] __attribute__((aligned(32)));
-    static s32 cfd_arg __attribute__((aligned(32)));
-    static s32 where_arg __attribute__((aligned(32)));
-    static s32 whence_arg __attribute__((aligned(32)));
+    static ioctlv vec[1] __attribute__((aligned(32)));
+    static s32 args[3] __attribute__((aligned(32)));
 
-    cfd_arg = cfd;
-    where_arg = where;
-    whence_arg = whence;
+    args[0] = cfd;
+    args[1] = where;
+    args[2] = whence;
 
-    vec[0].data = &cfd_arg;
-    vec[0].len = sizeof(s32);
-    vec[1].data = &where_arg;
-    vec[1].len = sizeof(s32);
-    vec[2].data = &whence_arg;
-    vec[2].len = sizeof(s32);
+    vec[0].data = args;
+    vec[0].len = sizeof(args);
 
-    shim_DCFlushRange(&cfd_arg, sizeof(cfd_arg));
-    shim_DCFlushRange(&where_arg, sizeof(where_arg));
-    shim_DCFlushRange(&whence_arg, sizeof(whence_arg));
+    shim_DCFlushRange(args, sizeof(args));
     shim_DCFlushRange(vec, sizeof(vec));
 
-    return fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_SEEKCONTENT, 3, 0, vec);
+    return fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_SEEKCONTENT, 1, 0, vec);
 }
 
 static s32 ES_CloseContent(s32 cfd) {
@@ -313,7 +315,7 @@ static s32 EnsureContent2Open(void) {
     /* Test read: read 32 bytes from offset 0 */
     s32 r = ES_ReadContent(s_ContentCfd, s_StaticEsBuf, 32);
     (void)r;
-    fn_OSReport("[SHIM] ES_ReadContent test: %d bytes, hdr=%02X%02X%02X%02X\n",
+    fn_OSReport("[SHIM] ES_ReadContent test: res=%d, hdr=%02X%02X%02X%02X\n",
         r, (u32)s_StaticEsBuf[0], (u32)s_StaticEsBuf[1],
         (u32)s_StaticEsBuf[2], (u32)s_StaticEsBuf[3]);
     /* Seek back to 0 */
@@ -329,13 +331,6 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
         return -1;
     }
 
-    /* ES_SeekContent(cfd, offset, SEEK_SET=0) */
-    s32 s = ES_SeekContent(s_ContentCfd, (s32)offset, 0);
-    if (s < 0) {
-        fn_OSReport("[SHIM ERROR] ES_SeekContent(off=%u) = %d\n", offset, s);
-        return -1;
-    }
-
     static int s_first_read_signaled = 0;
     if (!s_first_read_signaled) {
         s_first_read_signaled = 1;
@@ -346,24 +341,40 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
     /* Fast-path: If destination is 32-byte aligned, length is a 32-byte multiple,
      * and destination is within MEM1 (0x80000000..0x817FFFFF), DMA directly into dst. */
     if ((addr & 31) == 0 && (length & 31) == 0 && addr >= 0x80000000 && (addr + length) <= 0x81800000) {
-        shim_DCFlushRange(dst, length);
-        s32 r = ES_ReadContent(s_ContentCfd, dst, length);
-        shim_DCFlushRange(dst, length);
-        if (r == 0) {
-            return (s32)length;
+        s32 s = ES_SeekContent(s_ContentCfd, (s32)offset, 0);
+        if (s >= 0) {
+            shim_DCFlushRange(dst, length);
+            s32 r = ES_ReadContent(s_ContentCfd, dst, length);
+            shim_DCFlushRange(dst, length);
+            if (r == 0) {
+                return (s32)length;
+            }
         }
     }
 
     /* Safe bounce-buffer fallback for unaligned destinations or MEM2 buffers */
     u8* out = (u8*)dst;
     u32 remaining = length;
+    u32 cur_off = offset;
     while (remaining > 0) {
         u32 chunk = remaining;
         if (chunk > sizeof(s_StaticEsBuf)) chunk = sizeof(s_StaticEsBuf);
 
-        s32 r = ES_ReadContent(s_ContentCfd, s_StaticEsBuf, chunk);
+        u32 read_size = chunk;
+        u32 aligned_size = (chunk + 31) & ~31;
+        if (aligned_size <= sizeof(s_StaticEsBuf) && (cur_off + aligned_size) <= CONTENT2_TOTAL_SIZE) {
+            read_size = aligned_size;
+        }
+
+        s32 s = ES_SeekContent(s_ContentCfd, (s32)cur_off, 0);
+        if (s < 0) {
+            fn_OSReport("[SHIM ERROR] ES_SeekContent(off=%u) = %d\n", cur_off, s);
+            return -1;
+        }
+
+        s32 r = ES_ReadContent(s_ContentCfd, s_StaticEsBuf, read_size);
         if (r < 0) {
-            fn_OSReport("[SHIM ERROR] ES_ReadContent(len=%u) = %d\n", chunk, r);
+            fn_OSReport("[SHIM ERROR] ES_ReadContent(len=%u) = %d\n", read_size, r);
             return -1;
         }
 
@@ -371,6 +382,7 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
         shim_DCFlushRange(out, chunk);
 
         out += chunk;
+        cur_off += chunk;
         remaining -= chunk;
     }
 
