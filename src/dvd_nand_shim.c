@@ -174,8 +174,6 @@ typedef s32 (*IOS_Close_t)(s32 fd);
 #define IOCTL_ES_CLOSECONTENT 0x0B
 #define IOCTL_ES_SEEKCONTENT  0x23
 
-/* Statically allocated 32-byte aligned ES structures to prevent stack corruption */
-static u8 s_StaticEsBuf[64 * 1024] __attribute__((aligned(32)));
 static char s_EsDevicePath[] __attribute__((aligned(32))) = "/dev/es";
 
 static inline void* GetR13(void) {
@@ -268,9 +266,7 @@ static s32 ES_CloseContent(s32 cfd) {
 
 /*
  * Read 'length' bytes at 'offset' within an already-open ES content handle.
- * Bounded by a 64KB bounce buffer to guarantee safety and 32-byte alignment for IOS.
- * Aborts as soon as ES returns fewer bytes than requested (EOF reached),
- * and returns the actual number of bytes read.
+ * Reads directly into caller destination buffer in one go without an intermediate buffer.
  */
 static s32 ReadFromOpenContent(s32 cfd, void* dst, u32 offset, u32 length) {
     if (cfd < 0) return -1;
@@ -289,47 +285,11 @@ static s32 ReadFromOpenContent(s32 cfd, void* dst, u32 offset, u32 length) {
         return -1;
     }
 
-    u8* out = (u8*)dst;
-    u32 total_read = 0;
-
-    while (total_read < length) {
-        u32 remaining = length - total_read;
-        u32 chunk = remaining;
-        if (chunk > sizeof(s_StaticEsBuf)) {
-            chunk = sizeof(s_StaticEsBuf);
-        }
-
-        /* ES typically requires read sizes to be a multiple of 32 bytes.
-         * Round up to the next 32-byte boundary, bounded by s_StaticEsBuf. */
-        u32 aligned_size = (chunk + 31) & ~31;
-        u32 read_size = (aligned_size <= sizeof(s_StaticEsBuf)) ? aligned_size : chunk;
-
-        s32 r = ES_ReadContent(cfd, s_StaticEsBuf, read_size);
-        if (r < 0) {
-            fn_OSReport("[SHIM ERROR] ES_ReadContent(len=%u) = %d\n", read_size, r);
-            return (total_read > 0) ? (s32)total_read : r;
-        }
-        if (r == 0) {
-            /* EOF reached */
-            break;
-        }
-
-        u32 bytes_to_copy = (u32)r;
-        if (bytes_to_copy > chunk) {
-            bytes_to_copy = chunk;
-        }
-
-        shim_memcpy(out, s_StaticEsBuf, bytes_to_copy);
-        out += bytes_to_copy;
-        total_read += bytes_to_copy;
-
-        /* If ES returned less than what was requested, EOF was reached — abort early */
-        if ((u32)r < read_size) {
-            break;
-        }
+    s32 r = ES_ReadContent(cfd, dst, length);
+    if (r < 0) {
+        fn_OSReport("[SHIM ERROR] ES_ReadContent(dst=0x%08X, len=%u) = %d\n", (u32)dst, length, r);
     }
-
-    return (s32)total_read;
+    return r;
 }
 
 static inline const char* normalize_asset_path(const char* s);
