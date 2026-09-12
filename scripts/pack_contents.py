@@ -52,8 +52,6 @@ FILE_TABLE = [
     ("DataWii/BuildInfo.txt", 52),
     ("DataWii/Default.cfg", 20),
     ("DataWii/Modules.rso", 2478912),
-    ("DataWii/Video/T17.thp", 1906912),
-    ("DataWii/Video/THQ.thp", 3766656),
     ("DataWii/Video/ThpPlayerFiles/2nd_time.mid", 12103),
     ("DataWii/Video/ThpPlayerFiles/gm16adpcm.pcm", 881485),
     ("DataWii/Video/ThpPlayerFiles/gm16adpcm.wt", 193082),
@@ -63,14 +61,21 @@ FILE_TABLE = [
     ("DataWii/game.zip", 8604285),
 ]
 
-def load_individual_contents(game_dir) -> list:
+INTROS = [
+    ("DataWii/Video/T17.thp", 1906912),
+    ("DataWii/Video/THQ.thp", 3766656),
+]
+
+def load_individual_contents(game_dir, intro=True) -> list:
     """
     Returns a list of (rel_path, raw_bytes) for each of the 54 game assets.
     Each entry will become its own WAD content (indices 3..56).
     """
     result = []
-
-    for rel_path, expected_size in FILE_TABLE:
+    files = FILE_TABLE
+    if intro:
+        files += INTROS
+    for rel_path, expected_size in files:
         candidates = [
             os.path.join(game_dir, rel_path),
             os.path.join(game_dir, rel_path.lower()),

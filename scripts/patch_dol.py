@@ -17,7 +17,7 @@ def parse_map_symbols(map_path):
                     symbols[name] = addr
     return symbols
 
-def patch_dol(dol_in_path, shim_bin_path, shim_elf_path, dol_out_path):
+def patch_dol(dol_in_path, shim_bin_path, shim_elf_path, dol_out_path, nointro=False):
     with open(dol_in_path, "rb") as f: dol_data = bytearray(f.read())
     with open(shim_bin_path, "rb") as f: shim_bin = bytearray(f.read())
 
@@ -103,6 +103,12 @@ def patch_dol(dol_in_path, shim_bin_path, shim_elf_path, dol_out_path):
         #{"name": "KPR_NullCheck_Bypass1", "orig_addr": 0x8033C8E0, "raw_insn": 0x38600004},
         #{"name": "KPR_NullCheck_Bypass2", "orig_addr": 0x8033C8E4, "raw_insn": 0x4E800020},
     ]
+
+    if nointro:
+        hooks.extend([
+            {"name": "Disable_THQ", "orig_addr": 0x800958b4, "raw_insn": 0x7fe9fb78},
+            {"name": "Disable_Team17", "orig_addr": 0x800958d8, "raw_insn": 0x7fe9fb78},
+        ])
 
     print("\nPatching Hook Entry Points:")
     for h in hooks:

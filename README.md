@@ -72,6 +72,8 @@ This project is organized into two stages:
 ```bash
 # Automatic discovery mode (scans 'input/' and current directory):
 python3 convert.py
+# Or to build without Intros (saves 45 blocks)
+python3 convert.py --nointro
 
 # Explicit paths:
 python3 convert.py -i "Worms Battle Island.wbfs" -l "Shopping-Channel-HABA-v21-Wii.wad" -o "worms_bi.wad" --otp "otp.bin"

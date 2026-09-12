@@ -7,7 +7,7 @@ HOST_CC   ?= gcc
 
 ENABLE_LOGGING ?= 0
 ENABLE_SENSOR_FLASH ?= 0
-CFLAGS = -O2 -Wall -m32 -mhard-float -meabi -mno-sdata -nostartfiles -nodefaultlibs -fno-builtin -fno-tree-loop-distribute-patterns -DENABLE_SENSOR_FLASH=$(ENABLE_SENSOR_FLASH) -DENABLE_LOGGING=$(ENABLE_LOGGING)
+CFLAGS = -O0 -g3 -Wall -m32 -mhard-float -meabi -mno-sdata -nostartfiles -nodefaultlibs -fno-builtin -fno-tree-loop-distribute-patterns -DENABLE_SENSOR_FLASH=$(ENABLE_SENSOR_FLASH) -DENABLE_LOGGING=$(ENABLE_LOGGING)
 
 .PHONY: all shim tools release wad clean
 
@@ -19,7 +19,7 @@ precompiled/dvd_nand_shim.bin: src/dvd_nand_shim.c src/trampoline.S src/shim.ld
 	@mkdir -p precompiled
 	$(PPC_CC) $(CFLAGS) -T src/shim.ld -Wl,-Map=precompiled/dvd_nand_shim.elf.map -o precompiled/dvd_nand_shim.elf src/dvd_nand_shim.c src/trampoline.S
 	$(PPC_OBJCOPY) -O binary precompiled/dvd_nand_shim.elf $@
-	@rm -f precompiled/dvd_nand_shim.elf
+	#@rm -f precompiled/dvd_nand_shim.elf
 	@echo "[+] Generated precompiled/dvd_nand_shim.bin"
 
 tools: tools/lz11_compress

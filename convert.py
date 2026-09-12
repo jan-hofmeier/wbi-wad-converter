@@ -191,6 +191,7 @@ def main():
     parser.add_argument("--devkitpro", help="Custom path to devkitPro directory.")
     parser.add_argument("--work-dir", default="work_temp", help="Temporary working directory.")
     parser.add_argument("--keep-temp", action="store_true", help="Keep temporary working files after completion.")
+    parser.add_argument("--nointro", action="store_true", help="Skip intro videos and logos (THQ, Team17).")
 
     args = parser.parse_args()
     is_interactive = sys.stdin.isatty()
@@ -304,7 +305,7 @@ def main():
         patched_dol = os.path.join(work_dir, "main_patched.dol")
         print("Patching main.dol with DVD-NAND redirection shim...")
         from scripts.patch_dol import patch_dol
-        patch_dol(main_dol_path, shim_bin, None, patched_dol)
+        patch_dol(main_dol_path, shim_bin, None, patched_dol, args.nointro)
 
         # 6. Compress DOL with LZ11
         lz11_dol = os.path.join(work_dir, "main_patched.dol.lz11")
@@ -319,7 +320,7 @@ def main():
 
         # 7. Load Individual Game Asset Contents
         print("Loading individual game asset files...")
-        game_contents = load_individual_contents(extracted_dir)
+        game_contents = load_individual_contents(extracted_dir, not args.nointro)
 
         # 8. Package Final WAD
         out_wad = os.path.abspath(args.output)
