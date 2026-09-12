@@ -161,22 +161,11 @@ typedef struct ioctlv {
     u32 len;
 } ioctlv;
 
-typedef struct IPCCmd {
-    u32 cmd;        /* 1 = Open, 2 = Close, 3 = Read, 4 = Write, 5 = Seek, 6 = Ioctl, 7 = Ioctlv */
-    s32 result;     /* Return code from IOS */
-    s32 fd;         /* File descriptor */
-    union {
-        struct { const char* path; u32 mode; } open;
-        struct { void* data; u32 len; } read;
-        struct { s32 where; s32 whence; } seek;
-        struct { u32 ioctl; void* in; u32 in_len; void* out; u32 out_len; } ioctl;
-        struct { u32 ioctl; u32 cnt_in; u32 cnt_out; ioctlv* vec; } ioctlv;
-    };
-} IPCCmd;
-
+typedef s32 (*IOS_Ioctlv_t)(s32 fd, s32 ioctl, u32 cnt_in, u32 cnt_out, ioctlv* vec);
 typedef s32 (*IOS_Open_t)(const char* path, u32 mode);
 typedef s32 (*IOS_Close_t)(s32 fd);
 
+#define fn_IOS_Ioctlv   ((IOS_Ioctlv_t)0x802afba0)
 #define fn_IOS_Open     ((IOS_Open_t)0x802B9D90)
 #define fn_IOS_Close    ((IOS_Close_t)0x802AF110)
 
@@ -191,58 +180,6 @@ typedef s32 (*IOS_Close_t)(s32 fd);
 static u8 s_StaticEsBuf[64 * 1024] __attribute__((aligned(32)));
 static char s_EsDevicePath[] __attribute__((aligned(32))) = "/dev/es";
 
-/*
- * Cache management for PowerPC (Broadway):
- * dcbf (Data Cache Block Flush) flushes dirty cache lines to physical RAM AND invalidates
- * the cache line in L1/L2 cache. Unprivileged and safe for user-space execution.
- */
-static inline void shim_DCFlushRange(void* addr, u32 len) {
-    if (!addr || !len) return;
-    u32 start = (u32)addr & ~31;
-    u32 end = ((u32)addr + len + 31) & ~31;
-    for (u32 p = start; p < end; p += 32) {
-        asm volatile("dcbf 0, %0" : : "r"(p) : "memory");
-    }
-    asm volatile("sync; isync" : : : "memory");
-}
-
-static s32 (*s_fn_IOS_Ipc)(IPCCmd* cmd) = NULL;
-
-static s32 Init_IOS_Ipc(void) {
-    if (s_fn_IOS_Ipc) return 0;
-    u32* pc = (u32*)0x802B9D90;
-    for (int i = 0; i < 16; i++) {
-        u32 insn = pc[i];
-        if ((insn & 0xFC000003) == 0x48000001) { // 'bl' instruction
-            s32 offset = (s32)(insn & 0x03FFFFFC);
-            if (offset & 0x02000000) offset |= (s32)0xFC000000; // Sign-extend
-            s_fn_IOS_Ipc = (s32 (*)(IPCCmd*))((uintptr_t)&pc[i] + offset);
-            fn_OSReport("[SHIM] Found __IOS_Ipc at 0x%08X\n", (u32)s_fn_IOS_Ipc);
-            return 0;
-        }
-    }
-    fn_OSReport("[SHIM ERROR] Could not find __IOS_Ipc inside IOS_Open\n");
-    return -1;
-}
-
-static s32 shim_IOS_Ioctlv(s32 fd, s32 ioctl, u32 cnt_in, u32 cnt_out, ioctlv* vec) {
-    if (Init_IOS_Ipc() < 0 || !s_fn_IOS_Ipc) return -1;
-
-    static IPCCmd cmd __attribute__((aligned(32)));
-    cmd.cmd = 7; // IOS_IOCTLV
-    cmd.result = 0;
-    cmd.fd = fd;
-    cmd.ioctlv.ioctl = ioctl;
-    cmd.ioctlv.cnt_in = cnt_in;
-    cmd.ioctlv.cnt_out = cnt_out;
-    cmd.ioctlv.vec = vec;
-
-    shim_DCFlushRange(&cmd, sizeof(cmd));
-    s32 res = s_fn_IOS_Ipc(&cmd);
-    shim_DCFlushRange(&cmd, sizeof(cmd));
-
-    return res < 0 ? res : cmd.result;
-}
 
 static inline void* GetR13(void) {
     void* r13;
@@ -277,10 +214,7 @@ static s32 ES_OpenContent(u16 index) {
     vec[0].data = &idx_arg;
     vec[0].len = sizeof(u32);
 
-    shim_DCFlushRange(&idx_arg, sizeof(idx_arg));
-    shim_DCFlushRange(vec, sizeof(vec));
-
-    s32 cfd = shim_IOS_Ioctlv(s_EsFd, IOCTL_ES_OPENCONTENT, 1, 0, vec);
+    s32 cfd = fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_OPENCONTENT, 1, 0, vec);
     fn_OSReport("[SHIM] ES_OpenContent(index=%u) = %d\n", (u32)index, cfd);
     return cfd;
 }
@@ -297,12 +231,7 @@ static s32 ES_ReadContent(s32 cfd, void* data, u32 data_size) {
     vec[1].data = data;
     vec[1].len = data_size;
 
-    shim_DCFlushRange(&cfd_arg, sizeof(cfd_arg));
-    shim_DCFlushRange(data, data_size);
-    shim_DCFlushRange(vec, sizeof(vec));
-
-    s32 res = shim_IOS_Ioctlv(s_EsFd, IOCTL_ES_READCONTENT, 1, 1, vec);
-    shim_DCFlushRange(data, data_size);
+    s32 res = fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_READCONTENT, 1, 1, vec);
     return res;
 }
 
@@ -325,12 +254,7 @@ static s32 ES_SeekContent(s32 cfd, s32 where, s32 whence) {
     vec[2].data = &whence_arg;
     vec[2].len = sizeof(s32);
 
-    shim_DCFlushRange(&cfd_arg, sizeof(cfd_arg));
-    shim_DCFlushRange(&where_arg, sizeof(where_arg));
-    shim_DCFlushRange(&whence_arg, sizeof(whence_arg));
-    shim_DCFlushRange(vec, sizeof(vec));
-
-    return shim_IOS_Ioctlv(s_EsFd, IOCTL_ES_SEEKCONTENT, 3, 0, vec);
+    return fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_SEEKCONTENT, 3, 0, vec);
 }
 
 static s32 __attribute__((unused)) ES_CloseContent(s32 cfd) {
@@ -346,7 +270,7 @@ static s32 __attribute__((unused)) ES_CloseContent(s32 cfd) {
     shim_DCFlushRange(&cfd_arg, sizeof(cfd_arg));
     shim_DCFlushRange(vec, sizeof(vec));
 
-    return shim_IOS_Ioctlv(s_EsFd, IOCTL_ES_CLOSECONTENT, 1, 0, vec);
+    return fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_CLOSECONTENT, 1, 0, vec);
 }
 
 static s32 EnsureContent2Open(void) {
@@ -425,7 +349,6 @@ static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
         }
 
         shim_memcpy(out, s_StaticEsBuf, chunk);
-        shim_DCFlushRange(out, chunk);
 
         out += chunk;
         cur_off += chunk;
@@ -930,20 +853,25 @@ s32 Hook_DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 off
             }
             
             void* dst = addr;
-            if ((uintptr_t)dst < 0x80000000) {
-                dst = (void*)((uintptr_t)dst | 0x80000000);
-            }
+            // if ((uintptr_t)dst < 0x80000000) {
+            //     dst = (void*)((uintptr_t)dst | 0x80000000);
+            // }
             
             u32 file_raw_off = s_FileTable[idx].offset + (u32)offset;
             s32 bytes_read = ReadFromContent2(dst, file_raw_off, (u32)length);
             
             fileInfo->cb.state = 0; /* DVD_STATE_END */
-            fileInfo->cb.transferredSize = (bytes_read > 0 ? bytes_read : length);
+            fileInfo->cb.transferredSize = bytes_read;
             fileInfo->cb.addr = dst;
             fileInfo->cb.length = length;
             fileInfo->cb.offset = offset;
+
+            if(bytes_read != length) {
+                fn_OSReport("[ASSET READ ERROR] '%s': requested %d bytes at offset %d, but only read %d bytes\n",
+                    s_FileTable[idx].path, length, offset, bytes_read);
+            }
             if (callback) {
-                callback(bytes_read > 0 ? bytes_read : length, fileInfo);
+                callback(bytes_read, fileInfo);
             }
             return 1;
         }
