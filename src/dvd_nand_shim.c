@@ -1,6 +1,8 @@
 /*
  * Worms Battle Islands - Full Asset Redirection Shim
- * Safe Aligned NAND On-Demand Loading Shim
+ * Each game asset is its own WAD content entry (indices 3..56).
+ * Content handles are opened at DVDOpen time, stored in fileInfo->startAddr,
+ * used directly by DVDReadAsyncPrio, and closed at DVDClose time.
  */
 
 typedef signed int s32;
@@ -46,7 +48,7 @@ struct DVDCommandBlock {
 
 struct DVDFileInfo {
     DVDCommandBlock cb;
-    u32 startAddr;
+    u32 startAddr;  /* We store the ES content file descriptor here */
     u32 length;
     DVDCallback callback;
 };
@@ -82,77 +84,75 @@ static inline void shim_memcpy(void* dst, const void* src, u32 n) {
     }
 }
 
-static inline int IsDVDDiscLoaded(void) {
-    return 0;
-}
-
+/* Virtual entry number range used for ConvertPathToEntrynum -> FastOpen handshake */
 #define VIRTUAL_ENTRY_BASE 100000
 #define IS_VIRTUAL_ENTRY(e) ((e) >= VIRTUAL_ENTRY_BASE)
-#define VIRTUAL_ADDR_FLAG 0x7F000000
 
+/*
+ * File table: maps game asset paths to their WAD content indices.
+ * Content indices 3..56 correspond to FILE_TABLE entries 0..53 respectively.
+ */
 typedef struct VirtualFileEntry {
     const char* path;
     u32 length;
-    u32 offset;
-    s32 origEntrynum;
-    u32 origStartAddr;
+    u16 content_index; /* WAD content index (3..56) */
 } VirtualFileEntry;
 
 static VirtualFileEntry s_FileTable[] = {
-    { "DataWii/Audio/Atrac/Generic.spd", 10222796, 0x00000000, -1, 0 },
-    { "DataWii/Audio/Atrac/Generic.spt", 152, 0x009BFD00, -1, 0 },
-    { "DataWii/Audio/Banks/sfx/FE_Ambient.spd", 2640527, 0x009BFDC0, -1, 0 },
-    { "DataWii/Audio/Banks/sfx/FE_Ambient.spt", 2076, 0x00C44880, -1, 0 },
-    { "DataWii/Audio/Banks/sfx/FrontEnd.spd", 39887, 0x00C450C0, -1, 0 },
-    { "DataWii/Audio/Banks/sfx/FrontEnd.spt", 522, 0x00C4ECC0, -1, 0 },
-    { "DataWii/Audio/Banks/sfx/Game.spd", 1685760, 0x00C4EF00, -1, 0 },
-    { "DataWii/Audio/Banks/sfx/Game.spt", 3778, 0x00DEA800, -1, 0 },
-    { "DataWii/Audio/Banks/landscapeeditor.spd", 122848, 0x00DEB700, -1, 0 },
-    { "DataWii/Audio/Banks/landscapeeditor.spt", 818, 0x00E09700, -1, 0 },
-    { "DataWii/Audio/Banks/sfx/Misc.spd", 844772, 0x00E09A40, -1, 0 },
-    { "DataWii/Audio/Banks/sfx/Misc.spt", 3038, 0x00ED7E40, -1, 0 },
-    { "DataWii/Audio/Banks/speech/Area51.spd", 363822, 0x00ED8A40, -1, 0 },
-    { "DataWii/Audio/Banks/speech/Area51.spt", 1854, 0x00F31780, -1, 0 },
-    { "DataWii/Audio/Banks/speech/CrazedWarVet.spd", 360676, 0x00F31EC0, -1, 0 },
-    { "DataWii/Audio/Banks/speech/CrazedWarVet.spt", 1854, 0x00F89FC0, -1, 0 },
-    { "DataWii/Audio/Banks/speech/English.spd", 224683, 0x00F8A700, -1, 0 },
-    { "DataWii/Audio/Banks/speech/English.spt", 1854, 0x00FC14C0, -1, 0 },
-    { "DataWii/Audio/Banks/speech/French.spd", 201535, 0x00FC1C00, -1, 0 },
-    { "DataWii/Audio/Banks/speech/French.spt", 1854, 0x00FF2F40, -1, 0 },
-    { "DataWii/Audio/Banks/speech/German.spd", 201738, 0x00FF3680, -1, 0 },
-    { "DataWii/Audio/Banks/speech/German.spt", 1854, 0x01024AC0, -1, 0 },
-    { "DataWii/Audio/Banks/speech/GuerillaWarfare.spd", 331626, 0x01025200, -1, 0 },
-    { "DataWii/Audio/Banks/speech/GuerillaWarfare.spt", 1854, 0x01076180, -1, 0 },
-    { "DataWii/Audio/Banks/speech/Italian.spd", 234358, 0x010768C0, -1, 0 },
-    { "DataWii/Audio/Banks/speech/Italian.spt", 1854, 0x010AFC40, -1, 0 },
-    { "DataWii/Audio/Banks/speech/Jarhead.spd", 402743, 0x010B0380, -1, 0 },
-    { "DataWii/Audio/Banks/speech/Jarhead.spt", 1854, 0x011128C0, -1, 0 },
-    { "DataWii/Audio/Banks/speech/PresidentBush.spd", 555516, 0x01113000, -1, 0 },
-    { "DataWii/Audio/Banks/speech/PresidentBush.spt", 1854, 0x0119AA00, -1, 0 },
-    { "DataWii/Audio/Banks/speech/PreviewWii.spd", 155794, 0x0119B140, -1, 0 },
-    { "DataWii/Audio/Banks/speech/PreviewWii.spt", 1040, 0x011C1200, -1, 0 },
-    { "DataWii/Audio/Banks/speech/ReligiousSold.spd", 467310, 0x011C1640, -1, 0 },
-    { "DataWii/Audio/Banks/speech/ReligiousSold.spt", 1854, 0x012337C0, -1, 0 },
-    { "DataWii/Audio/Banks/speech/SecretAgent.spd", 423911, 0x01233F00, -1, 0 },
-    { "DataWii/Audio/Banks/speech/SecretAgent.spt", 1854, 0x0129B700, -1, 0 },
-    { "DataWii/Audio/Banks/speech/SecretMilitary.spd", 323506, 0x0129BE40, -1, 0 },
-    { "DataWii/Audio/Banks/speech/SecretMilitary.spt", 1854, 0x012EAE00, -1, 0 },
-    { "DataWii/Audio/Banks/speech/Spanish.spd", 233597, 0x012EB540, -1, 0 },
-    { "DataWii/Audio/Banks/speech/Spanish.spt", 1854, 0x013245C0, -1, 0 },
-    { "DataWii/Audio/Banks/speech/SpecialOps.spd", 295915, 0x01324D00, -1, 0 },
-    { "DataWii/Audio/Banks/speech/SpecialOps.spt", 1854, 0x0136D100, -1, 0 },
-    { "DataWii/BuildInfo.txt", 52, 0x0136D840, -1, 0 },
-    { "DataWii/Default.cfg", 20, 0x0136D880, -1, 0 },
-    { "DataWii/Modules.rso", 2478912, 0x0136D8C0, -1, 0 },
-    { "DataWii/Video/T17.thp", 1906912, 0x015CAC00, -1, 0 },
-    { "DataWii/Video/THQ.thp", 3766656, 0x0179C500, -1, 0 },
-    { "DataWii/Video/ThpPlayerFiles/2nd_time.mid", 12103, 0x01B33E80, -1, 0 },
-    { "DataWii/Video/ThpPlayerFiles/gm16adpcm.pcm", 881485, 0x01B36E00, -1, 0 },
-    { "DataWii/Video/ThpPlayerFiles/gm16adpcm.wt", 193082, 0x01C0E180, -1, 0 },
-    { "DataWii/Wow3.sel", 44736, 0x01C3D3C0, -1, 0 },
-    { "DataWii/first.zip", 733221, 0x01C48280, -1, 0 },
-    { "DataWii/frontend.zip", 4594145, 0x01CFB2C0, -1, 0 },
-    { "DataWii/game.zip", 8604285, 0x0215CCC0, -1, 0 },
+    { "DataWii/Audio/Atrac/Generic.spd",                   10222796, 3  },
+    { "DataWii/Audio/Atrac/Generic.spt",                   152,      4  },
+    { "DataWii/Audio/Banks/sfx/FE_Ambient.spd",            2640527,  5  },
+    { "DataWii/Audio/Banks/sfx/FE_Ambient.spt",            2076,     6  },
+    { "DataWii/Audio/Banks/sfx/FrontEnd.spd",              39887,    7  },
+    { "DataWii/Audio/Banks/sfx/FrontEnd.spt",              522,      8  },
+    { "DataWii/Audio/Banks/sfx/Game.spd",                  1685760,  9  },
+    { "DataWii/Audio/Banks/sfx/Game.spt",                  3778,     10 },
+    { "DataWii/Audio/Banks/landscapeeditor.spd",           122848,   11 },
+    { "DataWii/Audio/Banks/landscapeeditor.spt",           818,      12 },
+    { "DataWii/Audio/Banks/sfx/Misc.spd",                  844772,   13 },
+    { "DataWii/Audio/Banks/sfx/Misc.spt",                  3038,     14 },
+    { "DataWii/Audio/Banks/speech/Area51.spd",             363822,   15 },
+    { "DataWii/Audio/Banks/speech/Area51.spt",             1854,     16 },
+    { "DataWii/Audio/Banks/speech/CrazedWarVet.spd",       360676,   17 },
+    { "DataWii/Audio/Banks/speech/CrazedWarVet.spt",       1854,     18 },
+    { "DataWii/Audio/Banks/speech/English.spd",            224683,   19 },
+    { "DataWii/Audio/Banks/speech/English.spt",            1854,     20 },
+    { "DataWii/Audio/Banks/speech/French.spd",             201535,   21 },
+    { "DataWii/Audio/Banks/speech/French.spt",             1854,     22 },
+    { "DataWii/Audio/Banks/speech/German.spd",             201738,   23 },
+    { "DataWii/Audio/Banks/speech/German.spt",             1854,     24 },
+    { "DataWii/Audio/Banks/speech/GuerillaWarfare.spd",    331626,   25 },
+    { "DataWii/Audio/Banks/speech/GuerillaWarfare.spt",    1854,     26 },
+    { "DataWii/Audio/Banks/speech/Italian.spd",            234358,   27 },
+    { "DataWii/Audio/Banks/speech/Italian.spt",            1854,     28 },
+    { "DataWii/Audio/Banks/speech/Jarhead.spd",            402743,   29 },
+    { "DataWii/Audio/Banks/speech/Jarhead.spt",            1854,     30 },
+    { "DataWii/Audio/Banks/speech/PresidentBush.spd",      555516,   31 },
+    { "DataWii/Audio/Banks/speech/PresidentBush.spt",      1854,     32 },
+    { "DataWii/Audio/Banks/speech/PreviewWii.spd",         155794,   33 },
+    { "DataWii/Audio/Banks/speech/PreviewWii.spt",         1040,     34 },
+    { "DataWii/Audio/Banks/speech/ReligiousSold.spd",      467310,   35 },
+    { "DataWii/Audio/Banks/speech/ReligiousSold.spt",      1854,     36 },
+    { "DataWii/Audio/Banks/speech/SecretAgent.spd",        423911,   37 },
+    { "DataWii/Audio/Banks/speech/SecretAgent.spt",        1854,     38 },
+    { "DataWii/Audio/Banks/speech/SecretMilitary.spd",     323506,   39 },
+    { "DataWii/Audio/Banks/speech/SecretMilitary.spt",     1854,     40 },
+    { "DataWii/Audio/Banks/speech/Spanish.spd",            233597,   41 },
+    { "DataWii/Audio/Banks/speech/Spanish.spt",            1854,     42 },
+    { "DataWii/Audio/Banks/speech/SpecialOps.spd",         295915,   43 },
+    { "DataWii/Audio/Banks/speech/SpecialOps.spt",         1854,     44 },
+    { "DataWii/BuildInfo.txt",                             52,       45 },
+    { "DataWii/Default.cfg",                               20,       46 },
+    { "DataWii/Modules.rso",                               2478912,  47 },
+    { "DataWii/Video/T17.thp",                             1906912,  48 },
+    { "DataWii/Video/THQ.thp",                             3766656,  49 },
+    { "DataWii/Video/ThpPlayerFiles/2nd_time.mid",         12103,    50 },
+    { "DataWii/Video/ThpPlayerFiles/gm16adpcm.pcm",        881485,   51 },
+    { "DataWii/Video/ThpPlayerFiles/gm16adpcm.wt",         193082,   52 },
+    { "DataWii/Wow3.sel",                                  44736,    53 },
+    { "DataWii/first.zip",                                 733221,   54 },
+    { "DataWii/frontend.zip",                              4594145,  55 },
+    { "DataWii/game.zip",                                  8604285,  56 },
 };
 #define NUM_VIRTUAL_FILES 54
 
@@ -174,12 +174,9 @@ typedef s32 (*IOS_Close_t)(s32 fd);
 #define IOCTL_ES_CLOSECONTENT 0x0B
 #define IOCTL_ES_SEEKCONTENT  0x23
 
-#define CONTENT2_TOTAL_SIZE   0x02992380U
-
 /* Statically allocated 32-byte aligned ES structures to prevent stack corruption */
 static u8 s_StaticEsBuf[64 * 1024] __attribute__((aligned(32)));
 static char s_EsDevicePath[] __attribute__((aligned(32))) = "/dev/es";
-
 
 static inline void* GetR13(void) {
     void* r13;
@@ -188,7 +185,6 @@ static inline void* GetR13(void) {
 }
 
 static s32 s_EsFd = -1;
-static s32 s_ContentCfd = -1;
 
 /* ES API Helpers using IOS_Ioctlv */
 static s32 ES_Init(void) {
@@ -253,10 +249,11 @@ static s32 ES_SeekContent(s32 cfd, s32 where, s32 whence) {
     vec[2].data = &whence_arg;
     vec[2].len = sizeof(s32);
 
-    return fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_SEEKCONTENT, 3, 0, vec);
+    s32 res = fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_SEEKCONTENT, 3, 0, vec);
+    return res;
 }
 
-static s32 __attribute__((unused)) ES_CloseContent(s32 cfd) {
+static s32 ES_CloseContent(s32 cfd) {
     if (s_EsFd < 0 || cfd < 0) return -1;
 
     static ioctlv vec[1] __attribute__((aligned(32)));
@@ -269,89 +266,70 @@ static s32 __attribute__((unused)) ES_CloseContent(s32 cfd) {
     return fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_CLOSECONTENT, 1, 0, vec);
 }
 
-static s32 EnsureContent2Open(void) {
-    if (s_ContentCfd >= 0) return 0;
-
-    /* Open content index 2 via ES */
-    s_ContentCfd = ES_OpenContent(2);
-    if (s_ContentCfd < 0) {
-        fn_OSReport("[SHIM ERROR] ES_OpenContent(2) failed: %d\n", s_ContentCfd);
-        Blink_Error();
-        return s_ContentCfd;
-    }
-
-    /* Test read: read 32 bytes from offset 0 */
-    s32 r = ES_ReadContent(s_ContentCfd, s_StaticEsBuf, 32);
-    (void)r;
-    fn_OSReport("[SHIM] ES_ReadContent test: res=%d, hdr=%02X%02X%02X%02X\n",
-        r, (u32)s_StaticEsBuf[0], (u32)s_StaticEsBuf[1],
-        (u32)s_StaticEsBuf[2], (u32)s_StaticEsBuf[3]);
-    /* Seek back to 0 */
-    ES_SeekContent(s_ContentCfd, 0, 0);
-
-    Blink_Milestone(6); // 6 distinct flashes: ES content 2 archive opened successfully
-    return 0;
-}
-
-static s32 ReadFromContent2(void* dst, u32 offset, u32 length) {
-    if (EnsureContent2Open() != 0) {
-        fn_OSReport("[SHIM ERROR] Content2 not open\n");
-        return -1;
-    }
+/*
+ * Read 'length' bytes at 'offset' within an already-open ES content handle.
+ * Bounded by a 64KB bounce buffer to guarantee safety and 32-byte alignment for IOS.
+ * Aborts as soon as ES returns fewer bytes than requested (EOF reached),
+ * and returns the actual number of bytes read.
+ */
+static s32 ReadFromOpenContent(s32 cfd, void* dst, u32 offset, u32 length) {
+    if (cfd < 0) return -1;
+    if (!dst || length == 0) return 0;
 
     static int s_first_read_signaled = 0;
     if (!s_first_read_signaled) {
         s_first_read_signaled = 1;
-        Blink_Milestone(7); // 7 distinct flashes: Asset stream started
+        Blink_Milestone(7); /* 7 flashes: asset stream started */
     }
 
-    uintptr_t addr = (uintptr_t)dst;
-    /* Fast-path: If destination is 32-byte aligned, length is a 32-byte multiple,
-     * and destination is within MEM1 (0x80000000..0x817FFFFF), DMA directly into dst. */
-    if ((addr & 31) == 0 && (length & 31) == 0 && addr >= 0x80000000 && (addr + length) <= 0x81800000) {
-        s32 s = ES_SeekContent(s_ContentCfd, (s32)offset, 0);
-        if (s >= 0) {
-            s32 r = ES_ReadContent(s_ContentCfd, dst, length);
-            if (r == 0) {
-                return (s32)length;
-            }
-        }
+    /* Seek to the requested offset within this content */
+    s32 s = ES_SeekContent(cfd, (s32)offset, 0);
+    if (s < 0) {
+        fn_OSReport("[SHIM ERROR] ES_SeekContent(off=%u) = %d\n", offset, s);
+        return -1;
     }
 
-    /* Safe bounce-buffer fallback for unaligned destinations or MEM2 buffers */
     u8* out = (u8*)dst;
-    u32 remaining = length;
-    u32 cur_off = offset;
-    while (remaining > 0) {
+    u32 total_read = 0;
+
+    while (total_read < length) {
+        u32 remaining = length - total_read;
         u32 chunk = remaining;
-        if (chunk > sizeof(s_StaticEsBuf)) chunk = sizeof(s_StaticEsBuf);
+        if (chunk > sizeof(s_StaticEsBuf)) {
+            chunk = sizeof(s_StaticEsBuf);
+        }
 
-        u32 read_size = chunk;
+        /* ES typically requires read sizes to be a multiple of 32 bytes.
+         * Round up to the next 32-byte boundary, bounded by s_StaticEsBuf. */
         u32 aligned_size = (chunk + 31) & ~31;
-        if (aligned_size <= sizeof(s_StaticEsBuf) && (cur_off + aligned_size) <= CONTENT2_TOTAL_SIZE) {
-            read_size = aligned_size;
-        }
+        u32 read_size = (aligned_size <= sizeof(s_StaticEsBuf)) ? aligned_size : chunk;
 
-        s32 s = ES_SeekContent(s_ContentCfd, (s32)cur_off, 0);
-        if (s < 0) {
-            fn_OSReport("[SHIM ERROR] ES_SeekContent(off=%u) = %d\n", cur_off, s);
-            return -1;
-        }
-
-        s32 r = ES_ReadContent(s_ContentCfd, s_StaticEsBuf, read_size);
+        s32 r = ES_ReadContent(cfd, s_StaticEsBuf, read_size);
         if (r < 0) {
             fn_OSReport("[SHIM ERROR] ES_ReadContent(len=%u) = %d\n", read_size, r);
-            return -1;
+            return (total_read > 0) ? (s32)total_read : r;
+        }
+        if (r == 0) {
+            /* EOF reached */
+            break;
         }
 
-        shim_memcpy(out, s_StaticEsBuf, chunk);
+        u32 bytes_to_copy = (u32)r;
+        if (bytes_to_copy > chunk) {
+            bytes_to_copy = chunk;
+        }
 
-        out += chunk;
-        cur_off += chunk;
-        remaining -= chunk;
+        shim_memcpy(out, s_StaticEsBuf, bytes_to_copy);
+        out += bytes_to_copy;
+        total_read += bytes_to_copy;
+
+        /* If ES returned less than what was requested, EOF was reached — abort early */
+        if ((u32)r < read_size) {
+            break;
+        }
     }
 
-    return (s32)length;
+    return (s32)total_read;
 }
 
 static inline const char* normalize_asset_path(const char* s);
@@ -425,23 +403,6 @@ static s32 FindVirtualFile(const char* path) {
     return -1;
 }
 
-static void EnsureRealDVDAddress(u32 idx) {
-    if (!IsDVDDiscLoaded()) {
-        return;
-    }
-    if (idx < NUM_VIRTUAL_FILES && s_FileTable[idx].origStartAddr == 0) {
-        s32 real_entry = Orig_DVDConvertPathToEntrynum(s_FileTable[idx].path);
-        if (real_entry >= 0) {
-            s_FileTable[idx].origEntrynum = real_entry;
-            DVDFileInfo origInfo;
-            if (Orig_DVDFastOpen(real_entry, &origInfo)) {
-                s_FileTable[idx].origStartAddr = origInfo.startAddr;
-                Orig_DVDClose(&origInfo);
-            }
-        }
-    }
-}
-
 void Debug_Step(s32 n) {
     fn_OSReport("[CHECKPOINT %d]\n", n);
 }
@@ -502,13 +463,13 @@ void Hook_MainTrace(int* argc, char*** argv) {
     fn_OSReport("[SHIM] === main(0x8018DC88) entered successfully! ===\n");
     fn_OSReport("[SHIM] Original argc: %d\n", *argc);
     
-    // Forge argc and argv
+    /* Forge argc and argv */
     *argc = 4;
     *argv = s_fake_argv;
     fn_OSReport("[SHIM] Forged argc: %d, argv[1]: %s\n", *argc, (*argv)[1]);
 
-    // Force the DVD-ready flag to 1. In WAD mode the DVD disc check fails
-    // and this flag is left at 0, which prevents DVDOpen from ever being called.
+    /* Force the DVD-ready flag to 1. In WAD mode the DVD disc check fails
+     * and this flag is left at 0, which prevents DVDOpen from ever being called. */
     void* r13 = GetR13();
     *(u32*)((u8*)r13 - 11144) = 1;
     fn_OSReport("[SHIM] Forced DVD-ready flag at -11144(r13) to 1\n");
@@ -529,8 +490,8 @@ void Hook_Trace_DCD8(void) {
 int Hook_EarlyMain(int argc, char **argv) {
     fn_OSReport("[SHIM] main() entered successfully! argc=%d\n", argc);
     
-    // Force the DVD-ready flag to 1. In WAD mode the DVD disc check fails
-    // and this flag is left at 0, which prevents DVDOpen from ever being called.
+    /* Force the DVD-ready flag to 1. In WAD mode the DVD disc check fails
+     * and this flag is left at 0, which prevents DVDOpen from ever being called. */
     void* r13 = GetR13();
     *(u32*)((u8*)r13 - 11144) = 1;
     fn_OSReport("[SHIM] Forced DVD-ready flag at -11144(r13) to 1\n");
@@ -766,25 +727,50 @@ s32 Hook_DVDConvertPathToEntrynum(const char* path) {
         s_m5_done = 1;
         Blink_Milestone(5);
     }
-    
+
     fn_OSReport("[DVD] ConvertPathToEntrynum('%s')\n", path ? path : "NULL");
     s32 idx = FindVirtualFile(path);
     if (idx >= 0) {
-        EnsureRealDVDAddress((u32)idx);
 #if ENABLE_LOGGING
         if (!(s_FileOpenedMask & (1ULL << (u32)idx))) {
             s_FileOpenedMask |= (1ULL << (u32)idx);
-            fn_OSReport("[ASSET] Opened '%s' (%u bytes) (caller=0x%08X)\n", s_FileTable[idx].path, s_FileTable[idx].length, (u32)__builtin_return_address(0));
+            fn_OSReport("[ASSET] Lookup '%s' (%u bytes)\n", s_FileTable[idx].path, s_FileTable[idx].length);
         }
 #endif
         return VIRTUAL_ENTRY_BASE + idx;
     }
 
-    if (IsDVDDiscLoaded()) {
-        return Orig_DVDConvertPathToEntrynum(path);
-    }
-    fn_OSReport("[ERROR] DVD file not found: '%s' (caller=0x%08X)\n", path ? path : "NULL", (u32)__builtin_return_address(0));
+    fn_OSReport("[ERROR] DVD file not found: '%s'\n", path ? path : "NULL");
     return -1;
+}
+
+/*
+ * Open a virtual file: open its ES content handle and store the cfd in startAddr.
+ * The handle stays open until Hook_DVDClose is called.
+ */
+static s32 OpenVirtualFile(u32 idx, DVDFileInfo* fileInfo) {
+    if (idx >= NUM_VIRTUAL_FILES || !fileInfo) return 0;
+
+    s32 cfd = ES_OpenContent(s_FileTable[idx].content_index);
+    if (cfd < 0) {
+        fn_OSReport("[SHIM ERROR] ES_OpenContent(%u) failed: %d\n",
+                    (u32)s_FileTable[idx].content_index, cfd);
+        Blink_Error();
+        return 0;
+    }
+
+    fileInfo->startAddr          = (u32)cfd;
+    fileInfo->length             = s_FileTable[idx].length;
+    fileInfo->callback           = NULL;
+    fileInfo->cb.state           = 0;
+    fileInfo->cb.command         = 0;
+    fileInfo->cb.transferredSize = 0;
+    fileInfo->cb.offset          = 0;
+    fileInfo->cb.length          = s_FileTable[idx].length;
+
+    fn_OSReport("[ASSET] Opened '%s' -> cfd=%d (content %u)\n",
+                s_FileTable[idx].path, cfd, (u32)s_FileTable[idx].content_index);
+    return 1;
 }
 
 s32 Hook_DVDFastOpen(s32 entrynum, DVDFileInfo* fileInfo) {
@@ -794,96 +780,73 @@ s32 Hook_DVDFastOpen(s32 entrynum, DVDFileInfo* fileInfo) {
     } else if (entrynum == 0) {
         idx = 51; /* first.zip */
     } else {
-        if (IsDVDDiscLoaded()) {
-            return Orig_DVDFastOpen(entrynum, fileInfo);
-        }
-        fn_OSReport("[FASTOPEN FAIL] entrynum=%d (caller=0x%08X)\n", entrynum, (u32)__builtin_return_address(0));
+        fn_OSReport("[FASTOPEN FAIL] entrynum=%d\n", entrynum);
         return 0;
     }
 
-    if (idx < NUM_VIRTUAL_FILES) {
-        EnsureRealDVDAddress(idx);
-        if (fileInfo) {
-            fileInfo->startAddr = (s_FileTable[idx].origStartAddr != 0 && IsDVDDiscLoaded()) ? s_FileTable[idx].origStartAddr : (VIRTUAL_ADDR_FLAG | idx);
-            fileInfo->length = s_FileTable[idx].length;
-            fileInfo->callback = NULL;
-            fileInfo->cb.state = 0;
-            fileInfo->cb.command = 0;
-            fileInfo->cb.transferredSize = 0;
-            fileInfo->cb.offset = 0;
-            fileInfo->cb.length = s_FileTable[idx].length;
-        }
-        return 1;
-    }
-    return 0;
+    return OpenVirtualFile(idx, fileInfo);
 }
 
 s32 Hook_DVDOpen(const char* fileName, DVDFileInfo* fileInfo) {
     fn_OSReport("[DVD] DVDOpen('%s')\n", fileName ? fileName : "NULL");
     s32 idx = FindVirtualFile(fileName);
     if (idx >= 0) {
-        return Hook_DVDFastOpen(VIRTUAL_ENTRY_BASE + idx, fileInfo);
-    }
-    if (IsDVDDiscLoaded()) {
-        return Orig_DVDOpen(fileName, fileInfo);
+        return OpenVirtualFile((u32)idx, fileInfo);
     }
     fn_OSReport("[ERROR] DVDOpen file not found: '%s'\n", fileName ? fileName : "NULL");
     return 0;
 }
 
 s32 Hook_DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 offset, DVDCallback callback, s32 prio) {
-    if (fileInfo && ((fileInfo->startAddr & 0xFF000000) == VIRTUAL_ADDR_FLAG)) {
-        u32 idx = fileInfo->startAddr & 0x00FFFFFF;
-        if (idx < NUM_VIRTUAL_FILES) {
+    if (!fileInfo) return 0;
+
+    s32 cfd = (s32)fileInfo->startAddr;
+
+    if (cfd >= 0) {
 #if ENABLE_LOGGING
-            static u32 s_ReadCount = 0;
-            s_ReadCount++;
-            if (s_ReadCount <= 15) {
-                fn_OSReport("[ASSET READ #%u] '%s': %d bytes at offset %d\n", s_ReadCount, s_FileTable[idx].path, length, offset);
-            }
-#endif
-            EnsureRealDVDAddress(idx);
-            if (s_FileTable[idx].origStartAddr != 0 && IsDVDDiscLoaded()) {
-                fileInfo->startAddr = s_FileTable[idx].origStartAddr;
-                return Orig_DVDReadAsyncPrio(fileInfo, addr, length, offset, callback, prio);
-            }
-            
-            u32 file_raw_off = s_FileTable[idx].offset + (u32)offset;
-            s32 bytes_read = ReadFromContent2(addr, file_raw_off, (u32)length);
-            
-            fileInfo->cb.state = 0; /* DVD_STATE_END */
-            fileInfo->cb.transferredSize = bytes_read;
-            fileInfo->cb.addr = addr;
-            fileInfo->cb.length = length;
-            fileInfo->cb.offset = offset;
-
-            if(bytes_read != length) {
-                fn_OSReport("[ASSET READ ERROR] '%s': requested %d bytes at offset %d, but only read %d bytes\n",
-                    s_FileTable[idx].path, length, offset, bytes_read);
-            }
-            if (callback) {
-                callback(bytes_read, fileInfo);
-            }
-            return 1;
+        static u32 s_ReadCount = 0;
+        s_ReadCount++;
+        if (s_ReadCount <= 15) {
+            fn_OSReport("[ASSET READ #%u] cfd=%d: %d bytes at offset %d\n",
+                        s_ReadCount, cfd, length, offset);
         }
+#endif
+        s32 bytes_read = ReadFromOpenContent(cfd, addr, (u32)offset, (u32)length);
+
+        fileInfo->cb.state           = (bytes_read >= 0) ? 0 : -1; /* DVD_STATE_END or ERROR */
+        fileInfo->cb.transferredSize = (bytes_read >= 0) ? (u32)bytes_read : 0;
+        fileInfo->cb.addr            = addr;
+        fileInfo->cb.length          = length;
+        fileInfo->cb.offset          = offset;
+
+        if (bytes_read < 0) {
+            fn_OSReport("[ASSET READ ERROR] cfd=%d: read failed (%d)\n", cfd, bytes_read);
+        } else if (bytes_read != length) {
+            fn_OSReport("[ASSET READ SHORT] cfd=%d: requested %d bytes at offset %d, read %d\n",
+                        cfd, length, offset, bytes_read);
+        }
+        if (callback) {
+            callback(bytes_read, fileInfo);
+        }
+        return 1;
     }
 
-    if (IsDVDDiscLoaded()) {
-        return Orig_DVDReadAsyncPrio(fileInfo, addr, length, offset, callback, prio);
-    }
-    if (fileInfo) {
-        fileInfo->cb.state = 0;
-        fileInfo->cb.transferredSize = length;
-    }
+    /* cfd < 0: file was not successfully opened */
+    fileInfo->cb.state           = -1;
+    fileInfo->cb.transferredSize = 0;
     if (callback) {
-        callback(length, fileInfo);
+        callback(-1, fileInfo);
     }
     return 1;
 }
 
 s32 Hook_DVDClose(DVDFileInfo* fileInfo) {
-    if (IsDVDDiscLoaded()) {
-        return Orig_DVDClose(fileInfo);
+    if (!fileInfo) return 1;
+    s32 cfd = (s32)fileInfo->startAddr;
+    if (cfd >= 0) {
+        fn_OSReport("[DVD] DVDClose cfd=%d\n", cfd);
+        ES_CloseContent(cfd);
+        fileInfo->startAddr = (u32)-1;
     }
     return 1;
 }

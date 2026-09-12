@@ -7,7 +7,7 @@ Converts retail Wii disc / WBFS copies of Worms Battle Islands into a standalone
 import os, sys, shutil, argparse, subprocess, struct
 from scripts.keys import get_common_key
 from scripts.extract_game import extract_game
-from scripts.pack_content2 import pack_content2
+from scripts.pack_contents import load_individual_contents
 from scripts.pack_wad import create_wad
 
 def align64(n):
@@ -311,14 +311,14 @@ def main():
             from scripts.compress_lz11 import compress_file
             compress_file(patched_dol, lz11_dol)
 
-        # 7. Build Content 2 Archive
-        content2_path = os.path.join(work_dir, "content2.bin")
-        pack_content2(extracted_dir, content2_path)
+        # 7. Load Individual Game Asset Contents
+        print("Loading individual game asset files...")
+        game_contents = load_individual_contents(extracted_dir)
 
         # 8. Package Final WAD
         out_wad = os.path.abspath(args.output)
         print(f"Creating standalone WAD channel: {out_wad}...")
-        create_wad(lz11_dol, content2_path, banner_path, nand_loader_path, out_wad,
+        create_wad(lz11_dol, game_contents, banner_path, nand_loader_path, out_wad,
                    common_key=common_key, cert_data=cert_data, tik_template=tik_template, tmd_template=tmd_template)
 
         print("\n" + "=" * 65)

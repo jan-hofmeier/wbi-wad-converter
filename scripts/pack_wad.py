@@ -11,9 +11,17 @@ from .keys import get_common_key
 def align64(n):
     return (n + 63) & ~63
 
-def create_wad(dol_lz11_path, content2_path, banner_path, nand_loader_path, out_wad_path, common_key=None, cert_data=None, tik_template=None, tmd_template=None):
+def create_wad(dol_lz11_path, game_contents, banner_path, nand_loader_path, out_wad_path, common_key=None, cert_data=None, tik_template=None, tmd_template=None):
     """
     Assembles worms_bi.wad using provided decrypted component assets and the Wii Common Key.
+
+    game_contents: list of (rel_path, bytes) for each of the 54 individual game asset files.
+                   These become WAD content indices 3..56.
+    Content layout:
+        Index 0: opening.bnr  (banner)
+        Index 1: main_patched.dol.lz11  (game DOL)
+        Index 2: NAND loader  (boot content)
+        Index 3-56: individual game asset files
     """
     if not common_key:
         common_key = get_common_key()
@@ -29,23 +37,25 @@ def create_wad(dol_lz11_path, content2_path, banner_path, nand_loader_path, out_
     enc = cipher.encryptor()
     enc_title_key = enc.update(title_key) + enc.finalize()
 
-    # Read components
+    # Read fixed components
     with open(banner_path, 'rb') as f:
         banner_data = f.read()
     with open(dol_lz11_path, 'rb') as f:
         dol_data = f.read()
-    with open(content2_path, 'rb') as f:
-        content2_data = f.read()
     with open(nand_loader_path, 'rb') as f:
         nand_loader_data = f.read()
 
     # Content table: (ID, Index, Type, Data)
+    # Index 2 is the boot content (NAND loader); game files follow at 3..56.
     contents = [
-        (0, 0, 0x0001, banner_data),      # Index 0: Banner / opening.bnr
-        (1, 1, 0x0001, dol_data),         # Index 1: LZ11-compressed Game DOL
-        (2, 2, 0x0001, content2_data),    # Index 2: Data archive (54 assets)
-        (3, 3, 0x0001, nand_loader_data), # Index 3: Retail NAND Loader (boot content)
+        (0, 0, 0x0001, banner_data),       # Index 0: Banner / opening.bnr
+        (1, 1, 0x0001, dol_data),          # Index 1: LZ11-compressed Game DOL
+        (2, 2, 0x0001, nand_loader_data),  # Index 2: Retail NAND Loader (boot content)
     ]
+    for i, (_rel_path, file_data) in enumerate(game_contents):
+        contents.append((3 + i, 3 + i, 0x0001, file_data))  # Indices 3..56: game assets
+
+    num_contents = len(contents)  # 3 + 54 = 57
 
     # Ticket (0x2A4 = 676 bytes)
     if tik_template and len(tik_template) >= 0x2A4:
@@ -72,8 +82,8 @@ def create_wad(dol_lz11_path, content2_path, banner_path, nand_loader_path, out_
     tmd_hdr[0x184:0x18C] = bytes.fromhex('0000000100000038') # IOS249 (d2x cIOS base 56)
     tmd_hdr[0x18C:0x194] = title_id
     tmd_hdr[0x194:0x198] = struct.pack('>I', 0x00000001) # Title Type = Channel
-    tmd_hdr[0x1DE:0x1E0] = struct.pack('>H', len(contents))
-    tmd_hdr[0x1E0:0x1E2] = struct.pack('>H', 3) # Boot index = 3 (nand_loader)
+    tmd_hdr[0x1DE:0x1E0] = struct.pack('>H', num_contents)
+    tmd_hdr[0x1E0:0x1E2] = struct.pack('>H', 2)           # Boot index = 2 (NAND loader)
 
     enc_contents_data = bytearray()
     tmd_contents = bytearray()
@@ -85,7 +95,7 @@ def create_wad(dol_lz11_path, content2_path, banner_path, nand_loader_path, out_
 
         pad_len = align64(csize) - csize
         cdata_padded = cdata + b'\x00' * pad_len
-        
+
         c_iv = struct.pack('>H14x', cidx)
         c_cipher = Cipher(algorithms.AES(title_key), modes.CBC(c_iv))
         c_enc = c_cipher.encryptor()
@@ -115,8 +125,8 @@ def create_wad(dol_lz11_path, content2_path, banner_path, nand_loader_path, out_
         cert[0x840:0x844] = struct.pack('>I', 0x00000001)
         cert[0x844:0x880] = b'CA00000001\x00'
 
-    wad_hdr = struct.pack('>8I', 
-        0x20, 
+    wad_hdr = struct.pack('>8I',
+        0x20,
         0x49730000,
         len(cert),
         0,
@@ -142,9 +152,8 @@ def create_wad(dol_lz11_path, content2_path, banner_path, nand_loader_path, out_
         f.write(final_wad)
 
     print(f"Successfully generated WAD: {out_wad_path} ({len(final_wad)} bytes / {len(final_wad)/1024/1024:.2f} MB)")
+    print(f"  TMD: {num_contents} content entries (boot index 2 = NAND loader)")
 
 if __name__ == '__main__':
-    if len(sys.argv) < 6:
-        print("Usage: pack_wad.py <dol.lz11> <content2.bin> <opening.bnr> <nand_loader> <out.wad>")
-        sys.exit(1)
-    create_wad(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
+    print("Usage: invoke via convert.py — standalone mode not supported for per-file content layout.")
+    sys.exit(1)
