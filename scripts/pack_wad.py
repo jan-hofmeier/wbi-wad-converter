@@ -69,7 +69,7 @@ def create_wad(dol_lz11_path, content2_path, banner_path, nand_loader_path, out_
         tmd_hdr[0x140:0x17A] = b'Root-CA00000001-CP00000004\x00'
 
     tmd_hdr[0x180:0x184] = struct.pack('>I', 0x00000001) # Version
-    tmd_hdr[0x184:0x18C] = bytes.fromhex('00000001000000F9') # IOS249 (d2x cIOS base 56)
+    tmd_hdr[0x184:0x18C] = bytes.fromhex('0000000100000038') # IOS249 (d2x cIOS base 56)
     tmd_hdr[0x18C:0x194] = title_id
     tmd_hdr[0x194:0x198] = struct.pack('>I', 0x00000001) # Title Type = Channel
     tmd_hdr[0x1DE:0x1E0] = struct.pack('>H', len(contents))
