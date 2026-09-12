@@ -193,7 +193,6 @@ static s32 s_ContentCfd = -1;
 /* ES API Helpers using IOS_Ioctlv */
 static s32 ES_Init(void) {
     if (s_EsFd >= 0) return 0;
-    shim_DCFlushRange(s_EsDevicePath, sizeof(s_EsDevicePath));
     s_EsFd = fn_IOS_Open(s_EsDevicePath, 0);
     fn_OSReport("[SHIM] IOS_Open('/dev/es') = %d\n", s_EsFd);
     if (s_EsFd < 0) {
@@ -266,9 +265,6 @@ static s32 __attribute__((unused)) ES_CloseContent(s32 cfd) {
     cfd_arg = cfd;
     vec[0].data = &cfd_arg;
     vec[0].len = sizeof(s32);
-
-    shim_DCFlushRange(&cfd_arg, sizeof(cfd_arg));
-    shim_DCFlushRange(vec, sizeof(vec));
 
     return fn_IOS_Ioctlv(s_EsFd, IOCTL_ES_CLOSECONTENT, 1, 0, vec);
 }
@@ -852,17 +848,12 @@ s32 Hook_DVDReadAsyncPrio(DVDFileInfo* fileInfo, void* addr, s32 length, s32 off
                 return Orig_DVDReadAsyncPrio(fileInfo, addr, length, offset, callback, prio);
             }
             
-            void* dst = addr;
-            // if ((uintptr_t)dst < 0x80000000) {
-            //     dst = (void*)((uintptr_t)dst | 0x80000000);
-            // }
-            
             u32 file_raw_off = s_FileTable[idx].offset + (u32)offset;
-            s32 bytes_read = ReadFromContent2(dst, file_raw_off, (u32)length);
+            s32 bytes_read = ReadFromContent2(addr, file_raw_off, (u32)length);
             
             fileInfo->cb.state = 0; /* DVD_STATE_END */
             fileInfo->cb.transferredSize = bytes_read;
-            fileInfo->cb.addr = dst;
+            fileInfo->cb.addr = addr;
             fileInfo->cb.length = length;
             fileInfo->cb.offset = offset;
 
