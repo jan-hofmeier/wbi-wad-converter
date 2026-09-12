@@ -1,8 +1,6 @@
 OUTPUT_FORMAT("elf32-powerpc", "elf32-powerpc", "elf32-powerpc")
 OUTPUT_ARCH(powerpc:common)
 
-ENTRY(Shim_ConvertPathToEntrynum)
-
 SECTIONS
 {
     . = 0x805B0000;

@@ -40,4 +40,4 @@ wad: all
 	python3 convert.py -i "$(INPUT)" -l "$(LOADER)" -o "$(or $(OUTPUT),worms_bi.wad)"
 
 clean:
-	rm -rf build/ dist/ tools/ work_temp/ *.lz11 test_extract/
+	rm -rf build/ dist/ tools/ work_temp/ precompiled/ *.lz11 test_extract/

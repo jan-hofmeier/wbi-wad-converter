@@ -75,7 +75,7 @@ def build_all(version="1.0.0"):
         (os.path.join("scripts", "keys.py"), "scripts/keys.py"),
         (os.path.join("scripts", "extract_game.py"), "scripts/extract_game.py"),
         (os.path.join("scripts", "patch_dol.py"), "scripts/patch_dol.py"),
-        (os.path.join("scripts", "pack_content2.py"), "scripts/pack_content2.py"),
+        (os.path.join("scripts", "pack_contents.py"), "scripts/pack_contents.py"),
         (os.path.join("scripts", "pack_wad.py"), "scripts/pack_wad.py"),
         (os.path.join("scripts", "compress_lz11.py"), "scripts/compress_lz11.py"),
         (os.path.join("input", "README.txt"), "input/README.txt"),
@@ -87,7 +87,7 @@ def build_all(version="1.0.0"):
         for local_p, zip_p in files_to_pack:
             abs_p = os.path.join(SCRIPT_DIR, local_p)
             if os.path.isfile(abs_p):
-                zf.write(abs_p, zip_p)
+                zf.write(abs_p, "wbi-wad-converter/" + zip_p)
 
     print(f"  -> Created release package: {zip_path} ({os.path.getsize(zip_path)} bytes)")
     print("\n=== Release Build Finished Successfully ===")
