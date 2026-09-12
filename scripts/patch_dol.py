@@ -61,16 +61,16 @@ def patch_dol(dol_in_path, shim_bin_path, shim_elf_path, dol_out_path):
 
     hooks = [
         # Milestone 1: Inside OSInit at DVD check entry (0x80273970) -> bl M1_Wrapper
-        {"name": "M1_Hook", "orig_addr": 0x80273970, "target_addr": symbols["M1_Wrapper"], "is_call": True},
+        #{"name": "M1_Hook", "orig_addr": 0x80273970, "target_addr": symbols["M1_Wrapper"], "is_call": True},
         
         # Milestone 2: When OSInit returns to __start (0x80004170) -> b M2_Wrapper
-        {"name": "M2_Hook", "orig_addr": 0x80004170, "target_addr": symbols["M2_Wrapper"], "is_call": False},
+        #{"name": "M2_Hook", "orig_addr": 0x80004170, "target_addr": symbols["M2_Wrapper"], "is_call": False},
         
         # Milestone 3: __start calling main (0x800041B0) -> bl M3_Wrapper
-        {"name": "M3_Hook", "orig_addr": 0x800041B0, "target_addr": symbols["M3_Wrapper"], "is_call": True},
+        #{"name": "M3_Hook", "orig_addr": 0x800041B0, "target_addr": symbols["M3_Wrapper"], "is_call": True},
         
         # Main trace hook in case main is entered directly:
-        {"name": "Main_Trace_Hook", "orig_addr": 0x8018DC88, "target_addr": symbols["Hook_MainTrace_Trampoline"]},
+        #{"name": "Main_Trace_Hook", "orig_addr": 0x8018DC88, "target_addr": symbols["Hook_MainTrace_Trampoline"]},
         
         # DVD Redirection hooks (Milestone 5 is embedded in Hook_DVDConvertPathToEntrynum)
         {"name": "DVDConvertPathToEntrynum", "orig_addr": 0x8028B3B0, "target_addr": symbols["Hook_DVDConvertPathToEntrynum"]},
@@ -88,20 +88,20 @@ def patch_dol(dol_in_path, shim_bin_path, shim_elf_path, dol_out_path):
         {"name": "OSInit_ArenaLo3_Low", "orig_addr": 0x8027386C, "raw_insn": 0x38630000},
         {"name": "OSInit_ArenaLo4_High", "orig_addr": 0x8027CA6C, "raw_insn": 0x3C60805D},
         {"name": "OSInit_ArenaLo4_Low", "orig_addr": 0x8027CA74, "raw_insn": 0x38630000},
-        {"name": "DBInit_Stub", "orig_addr": 0x80004000, "raw_insn": 0x4E800020},
-        {"name": "MetroTRK_Check_Stub1", "orig_addr": 0x80004040, "raw_insn": 0x38600000},
-        {"name": "MetroTRK_Check_Stub2", "orig_addr": 0x80004044, "raw_insn": 0x4E800020},
-        {"name": "MetroTRK_Disable", "orig_addr": 0x800041A0, "raw_insn": 0x60000000},
+        #{"name": "DBInit_Stub", "orig_addr": 0x80004000, "raw_insn": 0x4E800020},
+        #{"name": "MetroTRK_Check_Stub1", "orig_addr": 0x80004040, "raw_insn": 0x38600000},
+        #{"name": "MetroTRK_Check_Stub2", "orig_addr": 0x80004044, "raw_insn": 0x4E800020},
+        #{"name": "MetroTRK_Disable", "orig_addr": 0x800041A0, "raw_insn": 0x60000000},
         
         # TOTAL DVD HARDWARE BYPASS: Jump straight from VIInit return to 80273B64
         {"name": "OSInit_DVDHardware_Bypass", "orig_addr": 0x80273974, "raw_insn": 0x480001F0},
         
         # PlayRec Skip: Prevent hang on play_rec.dat
-        {"name": "OSInit_PlayRec_Skip", "orig_addr": 0x80273BA4, "raw_insn": 0x60000000},
+        #{"name": "OSInit_PlayRec_Skip", "orig_addr": 0x80273BA4, "raw_insn": 0x60000000},
         
         # KPR Null Checks
-        {"name": "KPR_NullCheck_Bypass1", "orig_addr": 0x8033C8E0, "raw_insn": 0x38600004},
-        {"name": "KPR_NullCheck_Bypass2", "orig_addr": 0x8033C8E4, "raw_insn": 0x4E800020},
+        #{"name": "KPR_NullCheck_Bypass1", "orig_addr": 0x8033C8E0, "raw_insn": 0x38600004},
+        #{"name": "KPR_NullCheck_Bypass2", "orig_addr": 0x8033C8E4, "raw_insn": 0x4E800020},
     ]
 
     print("\nPatching Hook Entry Points:")
