@@ -2,6 +2,8 @@
 
 A standalone converter and runtime shim engine that transforms retail disc copies of **Worms: Battle Islands** (Wii / RVL) into an official-style, fully self-contained **Wii Channel WAD** (`SILP`) bootable directly from the Wii System Menu on retail Wii, vWii (Wii U), and the Dolphin Emulator.
 
+**This was only written and tested against the EU version of the Game. Other Regions likely won't work**
+
 ## Human Remark
 
 This was created using Sonnet and Gemini, but wouldn't have been possible without the amazing work of the community reverse engeniering the system and file formats.
@@ -40,7 +42,9 @@ This project is organized into two stages:
   ```bash
   pip install cryptography
   ```
+
 - **GCC** (optional, for compiling the native fast LZ11 compressor; a pure Python fallback is included).
+
 - **devkitPPC** (optional, only needed if modifying and recompiling the PowerPC shim from source).
 
 ---
@@ -56,7 +60,9 @@ This project is organized into two stages:
    - **Bootloader**: `00000060.app` (from Wii Shop v21) **OR** `Shopping-Channel-HABA-v21-Wii.wad` **OR** `nand_loader.dol`(Can be downloaded with NUS Downloader)
    
    - **Key**: `otp.bin` (from Wii / Wii U) **OR** `common.key`
+
 2. **Double-click `convert.py`** (or run `python3 convert.py`).
+
 3. The script automatically detects the files, builds `worms_bi.wad`, and reports the result!
 
 ---
