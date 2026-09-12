@@ -48,5 +48,6 @@ content2.bin
 Thumbs.db
 .vscode/
 .idea/
+.zed/
 *.swp
 *~
