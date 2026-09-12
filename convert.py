@@ -6,7 +6,7 @@ Converts retail Wii disc / WBFS copies of Worms Battle Islands into a standalone
 
 import os, sys, shutil, argparse, subprocess, struct
 from scripts.keys import get_common_key
-from scripts.extract_game import extract_game
+from scripts.extract_game import extract_game, get_disc_metadata
 from scripts.pack_contents import load_individual_contents
 from scripts.pack_wad import create_wad
 
@@ -265,7 +265,13 @@ def main():
                     print("  2. Install devkitPPC and build the shim using 'make all'.\n")
                     sys.exit(1)
 
-        # 3. Extract Game Assets
+        # 3. Extract Game Assets & Metadata
+        disc_meta = get_disc_metadata(input_game)
+        game_id = disc_meta.get("game_id", b'SILP')
+        maker_code = disc_meta.get("maker_code", b'78')
+        game_title = disc_meta.get("title", "Wbi")
+        print(f"Disc Metadata: Game ID={game_id.decode('ascii', errors='replace')}, Maker Code={maker_code.decode('ascii', errors='replace')}, Title={game_title}")
+
         extracted_dir = os.path.join(work_dir, "extracted")
         if os.path.isdir(input_game):
             extracted_dir = input_game
@@ -319,7 +325,8 @@ def main():
         out_wad = os.path.abspath(args.output)
         print(f"Creating standalone WAD channel: {out_wad}...")
         create_wad(lz11_dol, game_contents, banner_path, nand_loader_path, out_wad,
-                   common_key=common_key, cert_data=cert_data, tik_template=tik_template, tmd_template=tmd_template)
+                   common_key=common_key, cert_data=cert_data, tik_template=tik_template, tmd_template=tmd_template,
+                   game_id=game_id, maker_code=maker_code)
 
         print("\n" + "=" * 65)
         print(f" SUCCESS: {os.path.basename(out_wad)} created successfully!")

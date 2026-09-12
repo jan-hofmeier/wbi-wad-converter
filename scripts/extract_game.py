@@ -72,6 +72,40 @@ class DiscReader:
         self.f.close()
 
 
+def get_disc_metadata(input_path):
+    """
+    Extracts Game ID, Maker Code, and Game Title from a disc image (.wbfs, .iso) or directory.
+    Defaults to SILP / 78 (THQ) if not found.
+    """
+    if os.path.isdir(input_path):
+        for candidate in [os.path.join(input_path, "sys", "boot.bin"), os.path.join(input_path, "boot.bin")]:
+            if os.path.isfile(candidate):
+                try:
+                    with open(candidate, "rb") as f:
+                        hdr = f.read(0x100)
+                        return {
+                            "game_id": hdr[:4],
+                            "maker_code": hdr[4:6],
+                            "title": hdr[0x20:0x60].split(b'\x00')[0].decode('latin1', errors='ignore')
+                        }
+                except Exception:
+                    pass
+        return {"game_id": b'SILP', "maker_code": b'78', "title": "Wbi"}
+
+    try:
+        reader = DiscReader(input_path)
+        try:
+            hdr = reader.read_raw(0, 0x100)
+            return {
+                "game_id": hdr[:4],
+                "maker_code": hdr[4:6],
+                "title": hdr[0x20:0x60].split(b'\x00')[0].decode('latin1', errors='ignore')
+            }
+        finally:
+            reader.close()
+    except Exception:
+        return {"game_id": b'SILP', "maker_code": b'78', "title": "Wbi"}
+
 def extract_game(input_path, output_dir, common_key=None):
     """
     Extracts required assets from input_path (WBFS file, ISO file, or directory) into output_dir.

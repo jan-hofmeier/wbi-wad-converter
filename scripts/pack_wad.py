@@ -11,7 +11,9 @@ from .keys import get_common_key
 def align64(n):
     return (n + 63) & ~63
 
-def create_wad(dol_lz11_path, game_contents, banner_path, nand_loader_path, out_wad_path, common_key=None, cert_data=None, tik_template=None, tmd_template=None):
+def create_wad(dol_lz11_path, game_contents, banner_path, nand_loader_path, out_wad_path,
+               common_key=None, cert_data=None, tik_template=None, tmd_template=None,
+               game_id=b'SILP', maker_code=b'78'):
     """
     Assembles worms_bi.wad using provided decrypted component assets and the Wii Common Key.
 
@@ -28,7 +30,14 @@ def create_wad(dol_lz11_path, game_contents, banner_path, nand_loader_path, out_
     if not common_key or len(common_key) != 16:
         raise ValueError("Valid 16-byte Wii Common Key is required.")
 
-    title_id = b'\x00\x01\x00\x01SILP'
+    if isinstance(game_id, str):
+        game_id = game_id.encode('ascii')
+    if isinstance(maker_code, str):
+        maker_code = maker_code.encode('ascii')
+
+    title_id = b'\x00\x01\x00\x01' + (game_id[:4] if game_id else b'SILP')
+    group_id = maker_code[:2] if maker_code else b'78'
+
     title_key = bytes.fromhex('0102030405060708090a0b0c0d0e0f10')
 
     # Encrypt title key with common key using title ID IV
@@ -82,6 +91,7 @@ def create_wad(dol_lz11_path, game_contents, banner_path, nand_loader_path, out_
     tmd_hdr[0x184:0x18C] = bytes.fromhex('0000000100000038') # IOS249 (d2x cIOS base 56)
     tmd_hdr[0x18C:0x194] = title_id
     tmd_hdr[0x194:0x198] = struct.pack('>I', 0x00000001) # Title Type = Channel
+    tmd_hdr[0x198:0x19A] = group_id                       # Maker / Company Code from disc (e.g. b'78' = THQ)
     tmd_hdr[0x1DE:0x1E0] = struct.pack('>H', num_contents)
     tmd_hdr[0x1E0:0x1E2] = struct.pack('>H', 2)           # Boot index = 2 (NAND loader)
 
